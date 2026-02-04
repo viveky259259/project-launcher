@@ -114,6 +114,44 @@ class LightModeColors {
   static const lightInversePrimary = Color(0xFFACC7E3);
 }
 
+/// Midnight theme colors (unlockable via referrals)
+class MidnightThemeColors {
+  static const midnightPrimary = Color(0xFFB388FF);
+  static const midnightOnPrimary = Color(0xFF1A0033);
+  static const midnightPrimaryContainer = Color(0xFF4A148C);
+  static const midnightOnPrimaryContainer = Color(0xFFE1BEE7);
+  static const midnightSecondary = Color(0xFFCE93D8);
+  static const midnightOnSecondary = Color(0xFF2E1A47);
+  static const midnightTertiary = Color(0xFFB39DDB);
+  static const midnightOnTertiary = Color(0xFF311B92);
+  static const midnightError = Color(0xFFFFB4AB);
+  static const midnightOnError = Color(0xFF690005);
+  static const midnightSurface = Color(0xFF11001C);
+  static const midnightOnSurface = Color(0xFFE8DEF8);
+  static const midnightSurfaceVariant = Color(0xFF2D1B69);
+  static const midnightOnSurfaceVariant = Color(0xFFD0BCFF);
+  static const midnightOutline = Color(0xFF7E57C2);
+}
+
+/// Ocean theme colors (unlockable via referrals)
+class OceanThemeColors {
+  static const oceanPrimary = Color(0xFF90CAF9);
+  static const oceanOnPrimary = Color(0xFF003258);
+  static const oceanPrimaryContainer = Color(0xFF0277BD);
+  static const oceanOnPrimaryContainer = Color(0xFFBBDEFB);
+  static const oceanSecondary = Color(0xFF81D4FA);
+  static const oceanOnSecondary = Color(0xFF01579B);
+  static const oceanTertiary = Color(0xFF80DEEA);
+  static const oceanOnTertiary = Color(0xFF006064);
+  static const oceanError = Color(0xFFFFB4AB);
+  static const oceanOnError = Color(0xFF690005);
+  static const oceanSurface = Color(0xFF0A1929);
+  static const oceanOnSurface = Color(0xFFE3F2FD);
+  static const oceanSurfaceVariant = Color(0xFF0D47A1);
+  static const oceanOnSurfaceVariant = Color(0xFFBBDEFB);
+  static const oceanOutline = Color(0xFF1976D2);
+}
+
 /// Dark mode colors with good contrast
 class DarkModeColors {
   // Primary: Lighter blue for dark background
@@ -333,4 +371,162 @@ TextTheme _buildTextTheme(Brightness brightness) {
       letterSpacing: 0.4,
     ),
   );
+}
+
+// =============================================================================
+// UNLOCKABLE THEMES (via referrals)
+// =============================================================================
+
+/// Midnight theme - deep purple dark theme (unlocked with 3 referrals)
+ThemeData get midnightTheme => ThemeData(
+  useMaterial3: true,
+  colorScheme: ColorScheme.dark(
+    primary: MidnightThemeColors.midnightPrimary,
+    onPrimary: MidnightThemeColors.midnightOnPrimary,
+    primaryContainer: MidnightThemeColors.midnightPrimaryContainer,
+    onPrimaryContainer: MidnightThemeColors.midnightOnPrimaryContainer,
+    secondary: MidnightThemeColors.midnightSecondary,
+    onSecondary: MidnightThemeColors.midnightOnSecondary,
+    tertiary: MidnightThemeColors.midnightTertiary,
+    onTertiary: MidnightThemeColors.midnightOnTertiary,
+    error: MidnightThemeColors.midnightError,
+    onError: MidnightThemeColors.midnightOnError,
+    surface: MidnightThemeColors.midnightSurface,
+    onSurface: MidnightThemeColors.midnightOnSurface,
+    surfaceContainerHighest: MidnightThemeColors.midnightSurfaceVariant,
+    onSurfaceVariant: MidnightThemeColors.midnightOnSurfaceVariant,
+    outline: MidnightThemeColors.midnightOutline,
+  ),
+  brightness: Brightness.dark,
+  scaffoldBackgroundColor: MidnightThemeColors.midnightSurface,
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Colors.transparent,
+    foregroundColor: MidnightThemeColors.midnightOnSurface,
+    elevation: 0,
+    scrolledUnderElevation: 0,
+  ),
+  cardTheme: CardThemeData(
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(
+        color: MidnightThemeColors.midnightOutline.withValues(alpha: 0.2),
+        width: 1,
+      ),
+    ),
+  ),
+  textTheme: _buildTextTheme(Brightness.dark),
+);
+
+/// Ocean theme - blue-tinted dark theme (unlocked with 5 referrals)
+ThemeData get oceanTheme => ThemeData(
+  useMaterial3: true,
+  colorScheme: ColorScheme.dark(
+    primary: OceanThemeColors.oceanPrimary,
+    onPrimary: OceanThemeColors.oceanOnPrimary,
+    primaryContainer: OceanThemeColors.oceanPrimaryContainer,
+    onPrimaryContainer: OceanThemeColors.oceanOnPrimaryContainer,
+    secondary: OceanThemeColors.oceanSecondary,
+    onSecondary: OceanThemeColors.oceanOnSecondary,
+    tertiary: OceanThemeColors.oceanTertiary,
+    onTertiary: OceanThemeColors.oceanOnTertiary,
+    error: OceanThemeColors.oceanError,
+    onError: OceanThemeColors.oceanOnError,
+    surface: OceanThemeColors.oceanSurface,
+    onSurface: OceanThemeColors.oceanOnSurface,
+    surfaceContainerHighest: OceanThemeColors.oceanSurfaceVariant,
+    onSurfaceVariant: OceanThemeColors.oceanOnSurfaceVariant,
+    outline: OceanThemeColors.oceanOutline,
+  ),
+  brightness: Brightness.dark,
+  scaffoldBackgroundColor: OceanThemeColors.oceanSurface,
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Colors.transparent,
+    foregroundColor: OceanThemeColors.oceanOnSurface,
+    elevation: 0,
+    scrolledUnderElevation: 0,
+  ),
+  cardTheme: CardThemeData(
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(
+        color: OceanThemeColors.oceanOutline.withValues(alpha: 0.2),
+        width: 1,
+      ),
+    ),
+  ),
+  textTheme: _buildTextTheme(Brightness.dark),
+);
+
+/// Available app themes
+enum AppTheme {
+  light,
+  dark,
+  midnight,
+  ocean,
+}
+
+extension AppThemeExtension on AppTheme {
+  String get name {
+    switch (this) {
+      case AppTheme.light:
+        return 'Light';
+      case AppTheme.dark:
+        return 'Dark';
+      case AppTheme.midnight:
+        return 'Midnight';
+      case AppTheme.ocean:
+        return 'Ocean';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case AppTheme.light:
+        return 'Clean, modern light theme';
+      case AppTheme.dark:
+        return 'Default dark theme';
+      case AppTheme.midnight:
+        return 'Deep purple dark theme';
+      case AppTheme.ocean:
+        return 'Blue-tinted dark theme';
+    }
+  }
+
+  bool get requiresUnlock {
+    switch (this) {
+      case AppTheme.light:
+      case AppTheme.dark:
+        return false;
+      case AppTheme.midnight:
+      case AppTheme.ocean:
+        return true;
+    }
+  }
+
+  String? get unlockRewardId {
+    switch (this) {
+      case AppTheme.light:
+      case AppTheme.dark:
+        return null;
+      case AppTheme.midnight:
+        return 'dark_theme_midnight';
+      case AppTheme.ocean:
+        return 'dark_theme_ocean';
+    }
+  }
+
+  ThemeData get themeData {
+    switch (this) {
+      case AppTheme.light:
+        return lightTheme;
+      case AppTheme.dark:
+        return darkTheme;
+      case AppTheme.midnight:
+        return midnightTheme;
+      case AppTheme.ocean:
+        return oceanTheme;
+    }
+  }
 }

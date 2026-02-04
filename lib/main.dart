@@ -4,30 +4,90 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'models/project.dart';
+import 'models/health_score.dart';
 import 'services/project_storage.dart';
 import 'services/launcher_service.dart';
 import 'services/project_scanner.dart';
+import 'services/health_service.dart';
+import 'services/referral_service.dart';
+import 'screens/year_review_screen.dart';
+import 'screens/health_screen.dart';
+import 'screens/referral_screen.dart';
 import 'theme.dart';
 import 'kit/kit.dart';
 
 enum SortMode { lastOpened, name }
 enum ViewMode { list, folder }
+enum HealthFilter { all, healthy, needsAttention, critical }
+enum StalenessFilter { all, staleOnly }
 
 void main() {
   runApp(const ProjectLauncherApp());
 }
 
-class ProjectLauncherApp extends StatelessWidget {
+class ProjectLauncherApp extends StatefulWidget {
   const ProjectLauncherApp({super.key});
+
+  static _ProjectLauncherAppState? of(BuildContext context) {
+    return context.findAncestorStateOfType<_ProjectLauncherAppState>();
+  }
+
+  @override
+  State<ProjectLauncherApp> createState() => _ProjectLauncherAppState();
+}
+
+class _ProjectLauncherAppState extends State<ProjectLauncherApp> {
+  AppTheme _currentTheme = AppTheme.dark;
+  List<String> _unlockedThemes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThemePreference();
+  }
+
+  Future<void> _loadThemePreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final themeIndex = prefs.getInt('appTheme') ?? AppTheme.dark.index;
+    final unlockedThemes = await ReferralService.getUnlockedThemes();
+
+    if (mounted) {
+      setState(() {
+        _currentTheme = AppTheme.values[themeIndex];
+        _unlockedThemes = unlockedThemes;
+
+        // If current theme is locked, fall back to dark
+        if (_currentTheme.requiresUnlock &&
+            _currentTheme.unlockRewardId != null &&
+            !_unlockedThemes.contains(_currentTheme.unlockRewardId)) {
+          _currentTheme = AppTheme.dark;
+        }
+      });
+    }
+  }
+
+  Future<void> setTheme(AppTheme theme) async {
+    // Check if theme is unlocked
+    if (theme.requiresUnlock &&
+        theme.unlockRewardId != null &&
+        !_unlockedThemes.contains(theme.unlockRewardId)) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('appTheme', theme.index);
+
+    if (mounted) {
+      setState(() => _currentTheme = theme);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Project Launcher',
       debugShowCheckedModeBanner: false,
-      theme: lightTheme,
-      darkTheme: darkTheme,
-      themeMode: ThemeMode.dark,
+      theme: _currentTheme.themeData,
       home: const ProjectListScreen(),
     );
   }
@@ -50,15 +110,29 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
   String _searchQuery = '';
   String? _selectedTag;
   final _searchController = TextEditingController();
+  HealthFilter _healthFilter = HealthFilter.all;
+  StalenessFilter _stalenessFilter = StalenessFilter.all;
+  Map<String, CachedHealthScore> _healthScores = {};
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
     _loadProjects();
+    _loadHealthScores();
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _loadProjects();
     });
+  }
+
+  Future<void> _loadHealthScores() async {
+    final projects = await ProjectStorage.loadProjects();
+    final scores = await HealthService.getHealthScores(
+      projects.map((p) => p.path).toList(),
+    );
+    if (mounted) {
+      setState(() => _healthScores = scores);
+    }
   }
 
   @override
@@ -121,6 +195,33 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     // Filter by selected tag
     if (_selectedTag != null) {
       filtered = filtered.where((p) => p.tags.contains(_selectedTag)).toList();
+    }
+
+    // Filter by health
+    if (_healthFilter != HealthFilter.all) {
+      filtered = filtered.where((p) {
+        final health = _healthScores[p.path];
+        if (health == null) return false;
+        switch (_healthFilter) {
+          case HealthFilter.healthy:
+            return health.details.category == HealthCategory.healthy;
+          case HealthFilter.needsAttention:
+            return health.details.category == HealthCategory.needsAttention;
+          case HealthFilter.critical:
+            return health.details.category == HealthCategory.critical;
+          default:
+            return true;
+        }
+      }).toList();
+    }
+
+    // Filter by staleness
+    if (_stalenessFilter == StalenessFilter.staleOnly) {
+      filtered = filtered.where((p) {
+        final health = _healthScores[p.path];
+        if (health == null) return false;
+        return health.staleness != StalenessLevel.fresh;
+      }).toList();
     }
 
     return filtered;
@@ -357,6 +458,24 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     }
   }
 
+  void _showYearInReview() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const YearReviewScreen()),
+    );
+  }
+
+  void _showHealthDashboard() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const HealthScreen()),
+    );
+  }
+
+  void _showReferrals() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ReferralScreen()),
+    );
+  }
+
   Future<void> _scanForProjects() async {
     final result = await showDialog<ScanResult>(
       context: context,
@@ -397,6 +516,22 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               child: Icon(Icons.rocket_launch, color: cs.primary, size: 20),
             ),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.insights_rounded),
+                onPressed: _showYearInReview,
+                tooltip: 'Year in Review',
+              ),
+              IconButton(
+                icon: const Icon(Icons.health_and_safety_rounded),
+                onPressed: _showHealthDashboard,
+                tooltip: 'Health Dashboard',
+              ),
+              IconButton(
+                icon: const Icon(Icons.card_giftcard_rounded),
+                onPressed: _showReferrals,
+                tooltip: 'Referrals & Rewards',
+              ),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.radar_rounded),
                 onPressed: _scanForProjects,
@@ -478,6 +613,64 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               ),
             ),
 
+          // Health & Staleness filters
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                // Staleness filter
+                _FilterChip(
+                  icon: Icons.warning_amber_rounded,
+                  label: 'Stale Only',
+                  isSelected: _stalenessFilter == StalenessFilter.staleOnly,
+                  color: Colors.orange,
+                  onTap: () => setState(() {
+                    _stalenessFilter = _stalenessFilter == StalenessFilter.staleOnly
+                        ? StalenessFilter.all
+                        : StalenessFilter.staleOnly;
+                  }),
+                ),
+                const SizedBox(width: 8),
+                // Health filters
+                _FilterChip(
+                  icon: Icons.favorite,
+                  label: 'Healthy',
+                  isSelected: _healthFilter == HealthFilter.healthy,
+                  color: Colors.green,
+                  onTap: () => setState(() {
+                    _healthFilter = _healthFilter == HealthFilter.healthy
+                        ? HealthFilter.all
+                        : HealthFilter.healthy;
+                  }),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  icon: Icons.healing,
+                  label: 'Needs Attention',
+                  isSelected: _healthFilter == HealthFilter.needsAttention,
+                  color: Colors.orange,
+                  onTap: () => setState(() {
+                    _healthFilter = _healthFilter == HealthFilter.needsAttention
+                        ? HealthFilter.all
+                        : HealthFilter.needsAttention;
+                  }),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  icon: Icons.error,
+                  label: 'Critical',
+                  isSelected: _healthFilter == HealthFilter.critical,
+                  color: Colors.red,
+                  onTap: () => setState(() {
+                    _healthFilter = _healthFilter == HealthFilter.critical
+                        ? HealthFilter.all
+                        : HealthFilter.critical;
+                  }),
+                ),
+              ],
+            ),
+          ),
+
           // Project count
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -524,6 +717,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                                   final project = _sortedProjects[index];
                                   return _ProjectCard(
                                     project: project,
+                                    healthScore: _healthScores[project.path],
                                     onRemove: () => _removeProject(project),
                                     onOpenTerminal: () => _openInTerminal(project),
                                     onOpenVSCode: () => _openInVSCode(project),
@@ -542,6 +736,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                                   return _FolderGroup(
                                     folderName: folderName,
                                     projects: projects,
+                                    healthScores: _healthScores,
                                     onRemove: _removeProject,
                                     onOpenTerminal: _openInTerminal,
                                     onOpenVSCode: _openInVSCode,
@@ -595,8 +790,57 @@ class _TagFilterChip extends StatelessWidget {
   }
 }
 
+class _FilterChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.15) : cs.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? color : cs.outline.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: isSelected ? color : cs.onSurfaceVariant),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: isSelected ? color : cs.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ProjectCard extends StatefulWidget {
   final Project project;
+  final CachedHealthScore? healthScore;
   final VoidCallback onRemove;
   final VoidCallback onOpenTerminal;
   final VoidCallback onOpenVSCode;
@@ -606,6 +850,7 @@ class _ProjectCard extends StatefulWidget {
 
   const _ProjectCard({
     required this.project,
+    this.healthScore,
     required this.onRemove,
     required this.onOpenTerminal,
     required this.onOpenVSCode,
@@ -693,6 +938,21 @@ class _ProjectCardState extends State<_ProjectCard> {
                                 ),
                               ),
                             ),
+                            // Staleness badge
+                            if (widget.healthScore != null &&
+                                widget.healthScore!.staleness != StalenessLevel.fresh)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: _StalenessBadge(staleness: widget.healthScore!.staleness),
+                              ),
+                            // Health score indicator
+                            if (widget.healthScore != null)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: _HealthScoreIndicator(
+                                  score: widget.healthScore!.details.totalScore,
+                                ),
+                              ),
                             if (project.notes != null && project.notes!.isNotEmpty)
                               Tooltip(
                                 message: project.notes!,
@@ -866,9 +1126,108 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
+class _StalenessBadge extends StatelessWidget {
+  final StalenessLevel staleness;
+
+  const _StalenessBadge({required this.staleness});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _getStalenessColor(staleness);
+    return Tooltip(
+      message: staleness.label,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              staleness == StalenessLevel.abandoned
+                  ? Icons.archive_rounded
+                  : Icons.access_time_rounded,
+              size: 12,
+              color: color,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              staleness.label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getStalenessColor(StalenessLevel staleness) {
+    switch (staleness) {
+      case StalenessLevel.fresh:
+        return Colors.green;
+      case StalenessLevel.warning:
+        return Colors.orange;
+      case StalenessLevel.stale:
+        return Colors.red;
+      case StalenessLevel.abandoned:
+        return Colors.grey;
+    }
+  }
+}
+
+class _HealthScoreIndicator extends StatelessWidget {
+  final int score;
+
+  const _HealthScoreIndicator({required this.score});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _getScoreColor(score);
+    return Tooltip(
+      message: 'Health Score: $score/100',
+      child: SizedBox(
+        width: 24,
+        height: 24,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularProgressIndicator(
+              value: score / 100,
+              backgroundColor: color.withValues(alpha: 0.2),
+              valueColor: AlwaysStoppedAnimation(color),
+              strokeWidth: 2.5,
+            ),
+            Text(
+              score.toString(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    fontSize: 8,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getScoreColor(int score) {
+    if (score >= 80) return Colors.green;
+    if (score >= 50) return Colors.orange;
+    return Colors.red;
+  }
+}
+
 class _FolderGroup extends StatelessWidget {
   final String folderName;
   final List<Project> projects;
+  final Map<String, CachedHealthScore> healthScores;
   final Function(Project) onRemove;
   final Function(Project) onOpenTerminal;
   final Function(Project) onOpenVSCode;
@@ -879,6 +1238,7 @@ class _FolderGroup extends StatelessWidget {
   const _FolderGroup({
     required this.folderName,
     required this.projects,
+    required this.healthScores,
     required this.onRemove,
     required this.onOpenTerminal,
     required this.onOpenVSCode,
@@ -916,6 +1276,7 @@ class _FolderGroup extends StatelessWidget {
           padding: const EdgeInsets.only(left: 8),
           child: _ProjectCard(
             project: project,
+            healthScore: healthScores[project.path],
             onRemove: () => onRemove(project),
             onOpenTerminal: () => onOpenTerminal(project),
             onOpenVSCode: () => onOpenVSCode(project),
