@@ -1,8 +1,82 @@
 import 'dart:io';
+import 'native_lib.dart';
 
+/// Git service with Rust FFI acceleration (falls back to shell commands)
 class GitService {
+  static bool? _useNative;
+
+  /// Check if native library is available (cached)
+  static bool get _canUseNative {
+    _useNative ??= NativeLib.isAvailable;
+    return _useNative!;
+  }
+
   /// Get the date of the last commit in a repository
   static Future<DateTime?> getLastCommitDate(String repoPath) async {
+    if (_canUseNative) {
+      return NativeLib.instance.getLastCommitDate(repoPath);
+    }
+    return _getLastCommitDateDart(repoPath);
+  }
+
+  /// Get the number of commits in a repository, optionally since a specific date
+  static Future<int> getCommitCount(String repoPath, {DateTime? since}) async {
+    if (_canUseNative) {
+      return NativeLib.instance.getCommitCount(repoPath, since: since);
+    }
+    return _getCommitCountDart(repoPath, since: since);
+  }
+
+  /// Check if there are uncommitted changes (modified, staged, or untracked files)
+  static Future<bool> hasUncommittedChanges(String repoPath) async {
+    if (_canUseNative) {
+      return NativeLib.instance.hasUncommittedChanges(repoPath);
+    }
+    return _hasUncommittedChangesDart(repoPath);
+  }
+
+  /// Get the number of commits that haven't been pushed to the remote
+  static Future<int> getUnpushedCommitCount(String repoPath) async {
+    if (_canUseNative) {
+      return NativeLib.instance.getUnpushedCommitCount(repoPath);
+    }
+    return _getUnpushedCommitCountDart(repoPath);
+  }
+
+  /// Check if a directory is a git repository
+  static Future<bool> isGitRepository(String path) async {
+    if (_canUseNative) {
+      return NativeLib.instance.isGitRepository(path);
+    }
+    final gitDir = Directory('$path/.git');
+    return await gitDir.exists();
+  }
+
+  /// Get the current branch name
+  static Future<String?> getCurrentBranch(String repoPath) async {
+    // No native impl for this, use Dart
+    return _getCurrentBranchDart(repoPath);
+  }
+
+  /// Get monthly commit counts for the past year (for year-in-review)
+  static Future<Map<String, int>> getMonthlyCommitCounts(String repoPath) async {
+    if (_canUseNative) {
+      return NativeLib.instance.getMonthlyCommitCounts(repoPath);
+    }
+    return _getMonthlyCommitCountsDart(repoPath);
+  }
+
+  /// Get total commits in the past year
+  static Future<int> getYearlyCommitCount(String repoPath) async {
+    final oneYearAgo = DateTime.now().subtract(const Duration(days: 365));
+    return getCommitCount(repoPath, since: oneYearAgo);
+  }
+
+  // ===========================================================================
+  // Dart fallback implementations (using shell commands)
+  // ===========================================================================
+
+  static Future<DateTime?> _getLastCommitDateDart(String repoPath) async {
     try {
       final result = await Process.run(
         'git',
@@ -21,8 +95,7 @@ class GitService {
     }
   }
 
-  /// Get the number of commits in a repository, optionally since a specific date
-  static Future<int> getCommitCount(String repoPath, {DateTime? since}) async {
+  static Future<int> _getCommitCountDart(String repoPath, {DateTime? since}) async {
     try {
       final args = ['rev-list', '--count', 'HEAD'];
       if (since != null) {
@@ -42,8 +115,7 @@ class GitService {
     }
   }
 
-  /// Check if there are uncommitted changes (modified, staged, or untracked files)
-  static Future<bool> hasUncommittedChanges(String repoPath) async {
+  static Future<bool> _hasUncommittedChangesDart(String repoPath) async {
     try {
       final result = await Process.run(
         'git',
@@ -59,17 +131,14 @@ class GitService {
     }
   }
 
-  /// Get the number of commits that haven't been pushed to the remote
-  static Future<int> getUnpushedCommitCount(String repoPath) async {
+  static Future<int> _getUnpushedCommitCountDart(String repoPath) async {
     try {
-      // First check if there's a remote tracking branch
       final trackingResult = await Process.run(
         'git',
         ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
         workingDirectory: repoPath,
       );
       if (trackingResult.exitCode != 0) {
-        // No tracking branch set up
         return 0;
       }
 
@@ -87,14 +156,7 @@ class GitService {
     }
   }
 
-  /// Check if a directory is a git repository
-  static Future<bool> isGitRepository(String path) async {
-    final gitDir = Directory('$path/.git');
-    return await gitDir.exists();
-  }
-
-  /// Get the current branch name
-  static Future<String?> getCurrentBranch(String repoPath) async {
+  static Future<String?> _getCurrentBranchDart(String repoPath) async {
     try {
       final result = await Process.run(
         'git',
@@ -110,8 +172,7 @@ class GitService {
     }
   }
 
-  /// Get monthly commit counts for the past year (for year-in-review)
-  static Future<Map<String, int>> getMonthlyCommitCounts(String repoPath) async {
+  static Future<Map<String, int>> _getMonthlyCommitCountsDart(String repoPath) async {
     final counts = <String, int>{};
     final now = DateTime.now();
 
@@ -145,11 +206,5 @@ class GitService {
     }
 
     return counts;
-  }
-
-  /// Get total commits in the past year
-  static Future<int> getYearlyCommitCount(String repoPath) async {
-    final oneYearAgo = DateTime.now().subtract(const Duration(days: 365));
-    return getCommitCount(repoPath, since: oneYearAgo);
   }
 }
