@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
 import 'models/project.dart';
 import 'services/project_storage.dart';
 import 'services/launcher_service.dart';
+import 'services/project_scanner.dart';
 import 'theme.dart';
 import 'kit/kit.dart';
 
@@ -40,11 +42,13 @@ class ProjectListScreen extends StatefulWidget {
 
 class _ProjectListScreenState extends State<ProjectListScreen> {
   List<Project> _projects = [];
+  List<String> _allTags = [];
   bool _isLoading = true;
   Timer? _refreshTimer;
   SortMode _sortMode = SortMode.lastOpened;
   ViewMode _viewMode = ViewMode.list;
   String _searchQuery = '';
+  String? _selectedTag;
   final _searchController = TextEditingController();
 
   @override
@@ -101,16 +105,31 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
   }
 
   List<Project> get _filteredProjects {
-    if (_searchQuery.isEmpty) return _projects;
-    final query = _searchQuery.toLowerCase();
-    return _projects.where((p) =>
-      p.name.toLowerCase().contains(query) ||
-      p.path.toLowerCase().contains(query)
-    ).toList();
+    var filtered = _projects.toList();
+
+    // Filter by search query
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filtered = filtered.where((p) =>
+        p.name.toLowerCase().contains(query) ||
+        p.path.toLowerCase().contains(query) ||
+        p.tags.any((t) => t.toLowerCase().contains(query)) ||
+        (p.notes?.toLowerCase().contains(query) ?? false)
+      ).toList();
+    }
+
+    // Filter by selected tag
+    if (_selectedTag != null) {
+      filtered = filtered.where((p) => p.tags.contains(_selectedTag)).toList();
+    }
+
+    return filtered;
   }
 
   List<Project> get _sortedProjects {
     final sorted = List<Project>.from(_filteredProjects);
+
+    // Sort by name or last opened
     if (_sortMode == SortMode.name) {
       sorted.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     } else {
@@ -120,6 +139,14 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
         return bTime.compareTo(aTime);
       });
     }
+
+    // Move pinned items to the top
+    sorted.sort((a, b) {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return 0;
+    });
+
     return sorted;
   }
 
@@ -136,9 +163,11 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
 
   Future<void> _loadProjects() async {
     final projects = await ProjectStorage.loadProjects();
+    final tags = await ProjectStorage.getAllTags();
     if (mounted) {
       setState(() {
         _projects = projects;
+        _allTags = tags;
         _isLoading = false;
       });
     }
@@ -159,6 +188,121 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
   Future<void> _removeProject(Project project) async {
     await ProjectStorage.removeProject(project.path);
     _loadProjects();
+  }
+
+  Future<void> _togglePin(Project project) async {
+    await ProjectStorage.togglePinned(project.path);
+    _loadProjects();
+  }
+
+  Future<void> _editTags(Project project) async {
+    final controller = TextEditingController(text: project.tags.join(', '));
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Tags for ${project.name}'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              UkTextField(
+                controller: controller,
+                label: 'Tags (comma separated)',
+                hint: 'work, flutter, personal',
+                prefixIcon: Icons.label_rounded,
+              ),
+              if (_allTags.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text('Existing tags:', style: Theme.of(context).textTheme.labelMedium),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _allTags.map((tag) => InkWell(
+                    onTap: () {
+                      final current = controller.text;
+                      if (current.isEmpty) {
+                        controller.text = tag;
+                      } else if (!current.split(',').map((t) => t.trim()).contains(tag)) {
+                        controller.text = '$current, $tag';
+                      }
+                    },
+                    child: UkBadge(tag, variant: UkBadgeVariant.neutral),
+                  )).toList(),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          UkButton(
+            label: 'Cancel',
+            variant: UkButtonVariant.text,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          UkButton(
+            label: 'Save',
+            variant: UkButtonVariant.primary,
+            icon: Icons.check,
+            onPressed: () => Navigator.of(context).pop(controller.text),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      final tags = result.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+      await ProjectStorage.updateTags(project.path, tags);
+      _loadProjects();
+    }
+  }
+
+  Future<void> _editNotes(Project project) async {
+    final controller = TextEditingController(text: project.notes ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Notes for ${project.name}'),
+        content: SizedBox(
+          width: 500,
+          height: 200,
+          child: UkTextArea(
+            controller: controller,
+            label: 'Notes',
+            hint: 'Add notes, TODOs, or reminders...',
+            minLines: 5,
+            maxLines: 10,
+          ),
+        ),
+        actions: [
+          UkButton(
+            label: 'Cancel',
+            variant: UkButtonVariant.text,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          if (project.notes != null && project.notes!.isNotEmpty)
+            UkButton(
+              label: 'Clear',
+              variant: UkButtonVariant.outline,
+              icon: Icons.delete_outline,
+              onPressed: () => Navigator.of(context).pop(''),
+            ),
+          UkButton(
+            label: 'Save',
+            variant: UkButtonVariant.primary,
+            icon: Icons.check,
+            onPressed: () => Navigator.of(context).pop(controller.text),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      await ProjectStorage.updateNotes(project.path, result.isEmpty ? null : result);
+      _loadProjects();
+    }
   }
 
   Future<void> _addProjectManually() async {
@@ -213,9 +357,30 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     }
   }
 
+  Future<void> _scanForProjects() async {
+    final result = await showDialog<ScanResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const _ScanDialog(),
+    );
+
+    if (result != null && result.newlyAdded > 0) {
+      _loadProjects();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added ${result.newlyAdded} new project${result.newlyAdded == 1 ? '' : 's'}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final pinnedCount = _projects.where((p) => p.isPinned).length;
 
     return Scaffold(
       body: Column(
@@ -232,6 +397,11 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               child: Icon(Icons.rocket_launch, color: cs.primary, size: 20),
             ),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.radar_rounded),
+                onPressed: _scanForProjects,
+                tooltip: 'Scan for projects',
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: _loadProjects,
@@ -255,7 +425,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                 Expanded(
                   child: UkSearchBar(
                     controller: _searchController,
-                    hint: 'Search projects...',
+                    hint: 'Search projects, tags, notes...',
                     size: UkSearchSize.small,
                     onChanged: (value) => setState(() => _searchQuery = value),
                   ),
@@ -280,6 +450,34 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
             ),
           ),
 
+          // Tags filter
+          if (_allTags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: SizedBox(
+                height: 32,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _TagFilterChip(
+                      label: 'All',
+                      isSelected: _selectedTag == null,
+                      onTap: () => setState(() => _selectedTag = null),
+                    ),
+                    const SizedBox(width: 6),
+                    ..._allTags.map((tag) => Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _TagFilterChip(
+                        label: tag,
+                        isSelected: _selectedTag == tag,
+                        onTap: () => setState(() => _selectedTag = _selectedTag == tag ? null : tag),
+                      ),
+                    )),
+                  ],
+                ),
+              ),
+            ),
+
           // Project count
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -291,7 +489,18 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                     color: cs.onSurfaceVariant,
                   ),
                 ),
-                if (_searchQuery.isNotEmpty) ...[
+                if (pinnedCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Icon(Icons.push_pin_rounded, size: 12, color: cs.primary),
+                  const SizedBox(width: 2),
+                  Text(
+                    '$pinnedCount pinned',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: cs.primary,
+                    ),
+                  ),
+                ],
+                if (_searchQuery.isNotEmpty || _selectedTag != null) ...[
                   const SizedBox(width: 8),
                   UkBadge('filtered', variant: UkBadgeVariant.neutral),
                 ],
@@ -318,6 +527,9 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                                     onRemove: () => _removeProject(project),
                                     onOpenTerminal: () => _openInTerminal(project),
                                     onOpenVSCode: () => _openInVSCode(project),
+                                    onTogglePin: () => _togglePin(project),
+                                    onEditTags: () => _editTags(project),
+                                    onEditNotes: () => _editNotes(project),
                                   );
                                 },
                               )
@@ -333,6 +545,9 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                                     onRemove: _removeProject,
                                     onOpenTerminal: _openInTerminal,
                                     onOpenVSCode: _openInVSCode,
+                                    onTogglePin: _togglePin,
+                                    onEditTags: _editTags,
+                                    onEditNotes: _editNotes,
                                   );
                                 },
                               ),
@@ -343,17 +558,60 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
   }
 }
 
+class _TagFilterChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TagFilterChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? cs.primary : cs.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? cs.primary : cs.outline.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: isSelected ? cs.onPrimary : cs.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProjectCard extends StatefulWidget {
   final Project project;
   final VoidCallback onRemove;
   final VoidCallback onOpenTerminal;
   final VoidCallback onOpenVSCode;
+  final VoidCallback onTogglePin;
+  final VoidCallback onEditTags;
+  final VoidCallback onEditNotes;
 
   const _ProjectCard({
     required this.project,
     required this.onRemove,
     required this.onOpenTerminal,
     required this.onOpenVSCode,
+    required this.onTogglePin,
+    required this.onEditTags,
+    required this.onEditNotes,
   });
 
   @override
@@ -366,6 +624,7 @@ class _ProjectCardState extends State<_ProjectCard> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final project = widget.project;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -377,91 +636,186 @@ class _ProjectCardState extends State<_ProjectCard> {
           color: _isHovered ? cs.surfaceContainerHighest : cs.surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
-            color: _isHovered ? cs.primary.withValues(alpha: 0.3) : cs.outline.withValues(alpha: 0.2),
+            color: project.isPinned
+                ? cs.primary.withValues(alpha: 0.5)
+                : _isHovered
+                    ? cs.primary.withValues(alpha: 0.3)
+                    : cs.outline.withValues(alpha: 0.2),
+            width: project.isPinned ? 1.5 : 1,
           ),
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Folder icon
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: cs.primaryContainer,
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                child: Icon(Icons.folder_rounded, color: cs.primary, size: 24),
-              ),
-              const SizedBox(width: 16),
-              // Project info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.project.name,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.project.path,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (widget.project.lastOpenedAt != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Last opened ${_formatTimeAgo(widget.project.lastOpenedAt!)}',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+              Row(
+                children: [
+                  // Pin indicator & Folder icon
+                  Stack(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: cs.primaryContainer,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
+                        child: Icon(Icons.folder_rounded, color: cs.primary, size: 24),
                       ),
+                      if (project.isPinned)
+                        Positioned(
+                          top: -2,
+                          right: -2,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: cs.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.push_pin_rounded, color: cs.onPrimary, size: 10),
+                          ),
+                        ),
                     ],
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 16),
+                  // Project info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                project.name,
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (project.notes != null && project.notes!.isNotEmpty)
+                              Tooltip(
+                                message: project.notes!,
+                                child: Icon(Icons.sticky_note_2_rounded, size: 16, color: cs.tertiary),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          project.path,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (project.lastOpenedAt != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Last opened ${_formatTimeAgo(project.lastOpenedAt!)}',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  // Action buttons
+                  AnimatedOpacity(
+                    opacity: _isHovered ? 1.0 : 0.6,
+                    duration: const Duration(milliseconds: 150),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ActionButton(
+                          icon: project.isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                          tooltip: project.isPinned ? 'Unpin' : 'Pin to top',
+                          color: project.isPinned ? cs.primary : cs.onSurfaceVariant,
+                          onPressed: widget.onTogglePin,
+                        ),
+                        const SizedBox(width: 6),
+                        _ActionButton(
+                          icon: Icons.terminal_rounded,
+                          tooltip: 'Open in Terminal',
+                          color: Colors.orange,
+                          onPressed: widget.onOpenTerminal,
+                        ),
+                        const SizedBox(width: 6),
+                        _ActionButton(
+                          icon: Icons.code_rounded,
+                          tooltip: 'Open in VS Code',
+                          color: cs.primary,
+                          onPressed: widget.onOpenVSCode,
+                        ),
+                        const SizedBox(width: 6),
+                        _ActionButton(
+                          icon: Icons.folder_open_rounded,
+                          tooltip: 'Open in Finder',
+                          color: cs.tertiary,
+                          onPressed: () => LauncherService.openInFinder(project.path),
+                        ),
+                        const SizedBox(width: 6),
+                        PopupMenuButton<String>(
+                          icon: Icon(Icons.more_vert, color: cs.onSurfaceVariant, size: 18),
+                          tooltip: 'More options',
+                          onSelected: (value) {
+                            switch (value) {
+                              case 'tags':
+                                widget.onEditTags();
+                              case 'notes':
+                                widget.onEditNotes();
+                              case 'remove':
+                                widget.onRemove();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'tags',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.label_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Edit tags'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'notes',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.sticky_note_2_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Edit notes'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuDivider(),
+                            PopupMenuItem(
+                              value: 'remove',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_outline, size: 18, color: cs.error),
+                                  const SizedBox(width: 8),
+                                  Text('Remove', style: TextStyle(color: cs.error)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              // Action buttons
-              AnimatedOpacity(
-                opacity: _isHovered ? 1.0 : 0.6,
-                duration: const Duration(milliseconds: 150),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _ActionButton(
-                      icon: Icons.terminal_rounded,
-                      tooltip: 'Open in Terminal',
-                      color: Colors.orange,
-                      onPressed: widget.onOpenTerminal,
-                    ),
-                    const SizedBox(width: 6),
-                    _ActionButton(
-                      icon: Icons.code_rounded,
-                      tooltip: 'Open in VS Code',
-                      color: cs.primary,
-                      onPressed: widget.onOpenVSCode,
-                    ),
-                    const SizedBox(width: 6),
-                    _ActionButton(
-                      icon: Icons.folder_open_rounded,
-                      tooltip: 'Open in Finder',
-                      color: cs.tertiary,
-                      onPressed: () => LauncherService.openInFinder(widget.project.path),
-                    ),
-                    const SizedBox(width: 6),
-                    _ActionButton(
-                      icon: Icons.close_rounded,
-                      tooltip: 'Remove',
-                      color: cs.error,
-                      onPressed: widget.onRemove,
-                    ),
-                  ],
+              // Tags row
+              if (project.tags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: project.tags.map((tag) => UkBadge(tag, variant: UkBadgeVariant.neutral)).toList(),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -518,6 +872,9 @@ class _FolderGroup extends StatelessWidget {
   final Function(Project) onRemove;
   final Function(Project) onOpenTerminal;
   final Function(Project) onOpenVSCode;
+  final Function(Project) onTogglePin;
+  final Function(Project) onEditTags;
+  final Function(Project) onEditNotes;
 
   const _FolderGroup({
     required this.folderName,
@@ -525,6 +882,9 @@ class _FolderGroup extends StatelessWidget {
     required this.onRemove,
     required this.onOpenTerminal,
     required this.onOpenVSCode,
+    required this.onTogglePin,
+    required this.onEditTags,
+    required this.onEditNotes,
   });
 
   @override
@@ -559,6 +919,9 @@ class _FolderGroup extends StatelessWidget {
             onRemove: () => onRemove(project),
             onOpenTerminal: () => onOpenTerminal(project),
             onOpenVSCode: () => onOpenVSCode(project),
+            onTogglePin: () => onTogglePin(project),
+            onEditTags: () => onEditTags(project),
+            onEditNotes: () => onEditNotes(project),
           ),
         )),
         const SizedBox(height: 16),
@@ -658,6 +1021,345 @@ class _NoResultsState extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ScanDialog extends StatefulWidget {
+  const _ScanDialog();
+
+  @override
+  State<_ScanDialog> createState() => _ScanDialogState();
+}
+
+class _ScanDialogState extends State<_ScanDialog> {
+  bool _isScanning = false;
+  bool _isDone = false;
+  String _currentPath = '';
+  int _foundCount = 0;
+  ScanResult? _result;
+  final _customPathController = TextEditingController();
+
+  @override
+  void dispose() {
+    _customPathController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startScan() async {
+    setState(() {
+      _isScanning = true;
+      _currentPath = 'Starting scan...';
+      _foundCount = 0;
+    });
+
+    final result = await ProjectScanner.scanAndAddProjects(
+      onProgress: (path) {
+        if (mounted) {
+          setState(() => _currentPath = path);
+        }
+      },
+      onFound: (count) {
+        if (mounted) {
+          setState(() => _foundCount = count);
+        }
+      },
+    );
+
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+        _isDone = true;
+        _result = result;
+      });
+    }
+  }
+
+  Future<void> _scanCustomPath() async {
+    final path = _customPathController.text.trim();
+    if (path.isEmpty) return;
+
+    setState(() {
+      _isScanning = true;
+      _currentPath = path;
+    });
+
+    final result = await ProjectScanner.scanCustomPath(path);
+
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+        _isDone = true;
+        _result = result;
+      });
+    }
+  }
+
+  Future<void> _browseFolder() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select folder to scan',
+    );
+    if (result != null) {
+      _customPathController.text = result;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final scanPaths = ProjectScanner.getScanPaths();
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.radar_rounded, color: cs.primary),
+          const SizedBox(width: 12),
+          const Text('Scan for Projects'),
+        ],
+      ),
+      content: SizedBox(
+        width: 500,
+        child: _isDone
+            ? _buildResultView(cs)
+            : _isScanning
+                ? _buildScanningView(cs)
+                : _buildStartView(cs, scanPaths),
+      ),
+      actions: [
+        if (_isDone)
+          UkButton(
+            label: 'Done',
+            variant: UkButtonVariant.primary,
+            onPressed: () => Navigator.of(context).pop(_result),
+          )
+        else if (!_isScanning) ...[
+          UkButton(
+            label: 'Cancel',
+            variant: UkButtonVariant.text,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          UkButton(
+            label: 'Scan Default Paths',
+            variant: UkButtonVariant.primary,
+            icon: Icons.radar_rounded,
+            onPressed: _startScan,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildStartView(ColorScheme cs, List<String> scanPaths) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Automatically find git repositories in common project directories.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Default scan locations:',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 120,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: ListView(
+            children: scanPaths.map((path) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    Directory(path).existsSync() ? Icons.folder_rounded : Icons.folder_off_rounded,
+                    size: 16,
+                    color: Directory(path).existsSync() ? cs.primary : cs.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      path.replaceFirst(Platform.environment['HOME'] ?? '', '~'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        color: Directory(path).existsSync() ? cs.onSurface : cs.onSurfaceVariant.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )).toList(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const UkDivider(),
+        const SizedBox(height: 16),
+        Text(
+          'Or scan a custom directory:',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: UkTextField(
+                controller: _customPathController,
+                hint: '/path/to/scan',
+                prefixIcon: Icons.folder_rounded,
+                size: UkFieldSize.small,
+              ),
+            ),
+            const SizedBox(width: 8),
+            UkButton(
+              label: 'Browse',
+              size: UkButtonSize.small,
+              variant: UkButtonVariant.text,
+              icon: Icons.folder_open_rounded,
+              onPressed: _browseFolder,
+            ),
+            const SizedBox(width: 8),
+            UkButton(
+              label: 'Scan',
+              size: UkButtonSize.small,
+              variant: UkButtonVariant.outline,
+              onPressed: _scanCustomPath,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScanningView(ColorScheme cs) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 24),
+        const CircularProgressIndicator(),
+        const SizedBox(height: 24),
+        Text(
+          'Scanning for git repositories...',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _currentPath.replaceFirst(Platform.environment['HOME'] ?? '', '~'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: cs.onSurfaceVariant,
+            fontFamily: 'monospace',
+          ),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          '$_foundCount repositories found',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: cs.primary,
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildResultView(ColorScheme cs) {
+    final result = _result!;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.check_circle_rounded,
+            size: 48,
+            color: cs.primary,
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Scan Complete',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _ResultStat(
+              label: 'Found',
+              value: result.totalFound.toString(),
+              icon: Icons.folder_rounded,
+              color: cs.primary,
+            ),
+            _ResultStat(
+              label: 'Added',
+              value: result.newlyAdded.toString(),
+              icon: Icons.add_circle_rounded,
+              color: Colors.green,
+            ),
+            _ResultStat(
+              label: 'Already exists',
+              value: result.alreadyExists.toString(),
+              icon: Icons.check_circle_outline,
+              color: cs.onSurfaceVariant,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _ResultStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _ResultStat({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 28),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

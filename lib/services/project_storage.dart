@@ -72,4 +72,44 @@ class ProjectStorage {
       await saveProjects(projects);
     }
   }
+
+  static Future<void> togglePinned(String path) async {
+    final projects = await loadProjects();
+    final index = projects.indexWhere((p) => p.path == path);
+    if (index != -1) {
+      projects[index] = projects[index].copyWith(isPinned: !projects[index].isPinned);
+      await saveProjects(projects);
+    }
+  }
+
+  static Future<void> updateTags(String path, List<String> tags) async {
+    final projects = await loadProjects();
+    final index = projects.indexWhere((p) => p.path == path);
+    if (index != -1) {
+      projects[index] = projects[index].copyWith(tags: tags);
+      await saveProjects(projects);
+    }
+  }
+
+  static Future<void> updateNotes(String path, String? notes) async {
+    final projects = await loadProjects();
+    final index = projects.indexWhere((p) => p.path == path);
+    if (index != -1) {
+      if (notes == null || notes.isEmpty) {
+        projects[index] = projects[index].copyWith(clearNotes: true);
+      } else {
+        projects[index] = projects[index].copyWith(notes: notes);
+      }
+      await saveProjects(projects);
+    }
+  }
+
+  static Future<List<String>> getAllTags() async {
+    final projects = await loadProjects();
+    final tags = <String>{};
+    for (final p in projects) {
+      tags.addAll(p.tags);
+    }
+    return tags.toList()..sort();
+  }
 }
