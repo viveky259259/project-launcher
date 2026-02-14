@@ -10,9 +10,11 @@ import 'services/launcher_service.dart';
 import 'services/project_scanner.dart';
 import 'services/health_service.dart';
 import 'services/referral_service.dart';
+import 'services/premium_service.dart';
 import 'screens/year_review_screen.dart';
 import 'screens/health_screen.dart';
 import 'screens/referral_screen.dart';
+import 'screens/pro_screen.dart';
 import 'theme.dart';
 import 'kit/kit.dart';
 
@@ -21,7 +23,9 @@ enum ViewMode { list, folder }
 enum HealthFilter { all, healthy, needsAttention, critical }
 enum StalenessFilter { all, staleOnly }
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await PremiumService.configure();
   runApp(const ProjectLauncherApp());
 }
 
@@ -39,25 +43,39 @@ class ProjectLauncherApp extends StatefulWidget {
 class _ProjectLauncherAppState extends State<ProjectLauncherApp> {
   AppTheme _currentTheme = AppTheme.dark;
   List<String> _unlockedThemes = [];
+  bool _isPro = false;
 
   @override
   void initState() {
     super.initState();
     _loadThemePreference();
+    _setupPremiumListener();
+  }
+
+  void _setupPremiumListener() {
+    PremiumService.addCustomerInfoListener((customerInfo) {
+      final isActive = customerInfo.entitlements.all[RevenueCatConfig.entitlementId]?.isActive ?? false;
+      if (mounted && isActive != _isPro) {
+        setState(() => _isPro = isActive);
+      }
+    });
   }
 
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
     final themeIndex = prefs.getInt('appTheme') ?? AppTheme.dark.index;
     final unlockedThemes = await ReferralService.getUnlockedThemes();
+    final isPro = await PremiumService.isPro();
 
     if (mounted) {
       setState(() {
         _currentTheme = AppTheme.values[themeIndex];
         _unlockedThemes = unlockedThemes;
+        _isPro = isPro;
 
-        // If current theme is locked, fall back to dark
-        if (_currentTheme.requiresUnlock &&
+        // If current theme is locked, fall back to dark (Pro users bypass)
+        if (!_isPro &&
+            _currentTheme.requiresUnlock &&
             _currentTheme.unlockRewardId != null &&
             !_unlockedThemes.contains(_currentTheme.unlockRewardId)) {
           _currentTheme = AppTheme.dark;
@@ -66,9 +84,17 @@ class _ProjectLauncherAppState extends State<ProjectLauncherApp> {
     }
   }
 
+  Future<void> refreshPremiumStatus() async {
+    final isPro = await PremiumService.isPro();
+    if (mounted) {
+      setState(() => _isPro = isPro);
+    }
+  }
+
   Future<void> setTheme(AppTheme theme) async {
-    // Check if theme is unlocked
-    if (theme.requiresUnlock &&
+    // Pro users bypass referral requirements for themes
+    if (!_isPro &&
+        theme.requiresUnlock &&
         theme.unlockRewardId != null &&
         !_unlockedThemes.contains(theme.unlockRewardId)) {
       return;
@@ -458,9 +484,62 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     }
   }
 
-  void _showYearInReview() {
+  void _showYearInReview() async {
+    final isPro = await PremiumService.isPro();
+    if (!isPro) {
+      if (mounted) _showUpgradePrompt('Year in Review');
+      return;
+    }
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const YearReviewScreen()),
+      );
+    }
+  }
+
+  void _showUpgradePrompt(String featureName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.workspace_premium, color: Color(0xFFFFD700)),
+            const SizedBox(width: 8),
+            const Text('Pro Feature'),
+          ],
+        ),
+        content: Text(
+          '$featureName is a Pro feature. Upgrade to Pro for \$19 (one-time) to unlock it and all other premium features.',
+        ),
+        actions: [
+          UkButton(
+            label: 'Maybe Later',
+            variant: UkButtonVariant.text,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          UkButton(
+            label: 'View Pro',
+            variant: UkButtonVariant.primary,
+            icon: Icons.workspace_premium,
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showProScreen();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showProScreen() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const YearReviewScreen()),
+      MaterialPageRoute(
+        builder: (_) => ProScreen(
+          onStatusChanged: () {
+            ProjectLauncherApp.of(context)?.refreshPremiumStatus();
+          },
+        ),
+      ),
     );
   }
 
@@ -516,6 +595,20 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               child: Icon(Icons.rocket_launch, color: cs.primary, size: 20),
             ),
             actions: [
+              Builder(
+                builder: (context) {
+                  final appState = ProjectLauncherApp.of(context);
+                  final isPro = appState?._isPro ?? false;
+                  return IconButton(
+                    icon: Icon(
+                      Icons.workspace_premium,
+                      color: isPro ? const Color(0xFFFFD700) : null,
+                    ),
+                    onPressed: _showProScreen,
+                    tooltip: isPro ? 'Pro Active' : 'Upgrade to Pro',
+                  );
+                },
+              ),
               IconButton(
                 icon: const Icon(Icons.insights_rounded),
                 onPressed: _showYearInReview,

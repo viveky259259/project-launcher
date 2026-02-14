@@ -3,6 +3,10 @@ import '../models/health_score.dart';
 import '../models/project.dart';
 import '../services/health_service.dart';
 import '../services/project_storage.dart';
+import '../services/premium_service.dart';
+import '../screens/pro_screen.dart';
+import '../main.dart';
+import '../kit/kit.dart';
 
 class HealthScreen extends StatefulWidget {
   const HealthScreen({super.key});
@@ -14,6 +18,7 @@ class HealthScreen extends StatefulWidget {
 class _HealthScreenState extends State<HealthScreen> {
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _isPro = false;
   int _progress = 0;
   int _total = 0;
   List<_ProjectHealthData> _projectsHealth = [];
@@ -23,6 +28,12 @@ class _HealthScreenState extends State<HealthScreen> {
   void initState() {
     super.initState();
     _loadHealthData();
+    _loadProStatus();
+  }
+
+  Future<void> _loadProStatus() async {
+    final isPro = await PremiumService.isPro();
+    if (mounted) setState(() => _isPro = isPro);
   }
 
   Future<void> _loadHealthData({bool forceRefresh = false}) async {
@@ -159,14 +170,34 @@ class _HealthScreenState extends State<HealthScreen> {
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _filteredProjects.length,
+                          itemCount: _filteredProjects.length + 1,
                           itemBuilder: (context, index) {
-                            final data = _filteredProjects[index];
-                            return _ProjectHealthCard(
-                              data: data,
-                              onRefresh: () async {
-                                await HealthService.invalidateCache(data.project.path);
-                                _loadHealthData(forceRefresh: false);
+                            if (index < _filteredProjects.length) {
+                              final data = _filteredProjects[index];
+                              return _ProjectHealthCard(
+                                data: data,
+                                onRefresh: () async {
+                                  await HealthService.invalidateCache(data.project.path);
+                                  _loadHealthData(forceRefresh: false);
+                                },
+                              );
+                            }
+                            // Health History teaser card at the bottom
+                            return _HealthHistoryTeaser(
+                              isPro: _isPro,
+                              onTap: () {
+                                if (!_isPro) {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ProScreen(
+                                        onStatusChanged: () {
+                                          ProjectLauncherApp.of(context)?.refreshPremiumStatus();
+                                          _loadProStatus();
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                }
                               },
                             );
                           },
@@ -569,6 +600,90 @@ class _DetailChip extends StatelessWidget {
                 ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _HealthHistoryTeaser extends StatelessWidget {
+  final bool isPro;
+  final VoidCallback onTap;
+
+  const _HealthHistoryTeaser({
+    required this.isPro,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16, top: 8),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isPro
+              ? cs.outline.withValues(alpha: 0.2)
+              : const Color(0xFFFFD700).withValues(alpha: 0.3),
+        ),
+      ),
+      child: InkWell(
+        onTap: isPro ? null : onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFD700).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.trending_up_rounded,
+                  color: Color(0xFFFFD700),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Health History & Trends',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        if (!isPro) ...[
+                          const SizedBox(width: 8),
+                          UkBadge('PRO', variant: UkBadgeVariant.neutral),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isPro
+                          ? 'Track how your project health changes over time'
+                          : 'Upgrade to Pro to track health trends over time',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!isPro)
+                Icon(Icons.lock, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+            ],
+          ),
+        ),
       ),
     );
   }

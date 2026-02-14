@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/referral.dart';
 import '../services/referral_service.dart';
+import '../services/premium_service.dart';
 import '../kit/kit.dart';
 
 class ReferralScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class ReferralScreen extends StatefulWidget {
 
 class _ReferralScreenState extends State<ReferralScreen> {
   bool _isLoading = true;
+  bool _isPro = false;
   ReferralData? _referralData;
   List<RewardStatus> _rewardStatuses = [];
   final _codeController = TextEditingController();
@@ -34,11 +36,13 @@ class _ReferralScreenState extends State<ReferralScreen> {
 
     final data = await ReferralService.loadReferralData();
     final statuses = await ReferralService.getRewardStatuses();
+    final isPro = await PremiumService.isPro();
 
     if (mounted) {
       setState(() {
         _referralData = data;
         _rewardStatuses = statuses;
+        _isPro = isPro;
         _isLoading = false;
       });
     }
@@ -175,7 +179,10 @@ class _ReferralScreenState extends State<ReferralScreen> {
                   const SizedBox(height: 16),
 
                   // Reward cards
-                  ..._rewardStatuses.map((status) => _RewardCard(status: status)),
+                  ..._rewardStatuses.map((status) => _RewardCard(
+                    status: status,
+                    isPro: _isPro,
+                  )),
                 ],
               ),
             ),
@@ -293,13 +300,15 @@ class _ReferralCodeCard extends StatelessWidget {
 
 class _RewardCard extends StatelessWidget {
   final RewardStatus status;
+  final bool isPro;
 
-  const _RewardCard({required this.status});
+  const _RewardCard({required this.status, this.isPro = false});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final reward = status.reward;
+    final isUnlocked = status.isUnlocked || isPro;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -308,10 +317,10 @@ class _RewardCard extends StatelessWidget {
         color: cs.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: status.isUnlocked
+          color: isUnlocked
               ? Colors.green.withValues(alpha: 0.5)
               : cs.outline.withValues(alpha: 0.2),
-          width: status.isUnlocked ? 2 : 1,
+          width: isUnlocked ? 2 : 1,
         ),
       ),
       child: Row(
@@ -324,7 +333,7 @@ class _RewardCard extends StatelessWidget {
               gradient: _getThemeGradient(reward),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: status.isUnlocked
+            child: isUnlocked
                 ? const Icon(Icons.check, color: Colors.white)
                 : Icon(
                     Icons.lock,
@@ -345,7 +354,7 @@ class _RewardCard extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                     ),
-                    if (status.isUnlocked) ...[
+                    if (isUnlocked) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -357,9 +366,11 @@ class _RewardCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          'UNLOCKED',
+                          isPro && !status.isUnlocked ? 'PRO' : 'UNLOCKED',
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Colors.green,
+                                color: isPro && !status.isUnlocked
+                                    ? const Color(0xFFFFD700)
+                                    : Colors.green,
                                 fontWeight: FontWeight.bold,
                               ),
                         ),
@@ -374,7 +385,7 @@ class _RewardCard extends StatelessWidget {
                         color: cs.onSurfaceVariant,
                       ),
                 ),
-                if (!status.isUnlocked) ...[
+                if (!isUnlocked) ...[
                   const SizedBox(height: 8),
                   Row(
                     children: [
