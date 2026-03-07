@@ -29,7 +29,7 @@ class AppTypography {
     return _jetBrainsMono.copyWith(fontSize: fontSize, fontWeight: fontWeight, color: color);
   }
 
-  static TextStyle inter({double fontSize = 14, FontWeight fontWeight = FontWeight.w400, Color? color}) {
-    return _inter.copyWith(fontSize: fontSize, fontWeight: fontWeight, color: color);
+  static TextStyle inter({double fontSize = 14, FontWeight fontWeight = FontWeight.w400, Color? color, double? letterSpacing}) {
+    return _inter.copyWith(fontSize: fontSize, fontWeight: fontWeight, color: color, letterSpacing: letterSpacing);
   }
 }

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 import '../services/premium_service.dart';
-import '../kit/kit.dart';
+import '../theme/app_theme.dart';
 
 class ProScreen extends StatefulWidget {
   final VoidCallback? onStatusChanged;
@@ -98,50 +98,96 @@ class _ProScreenState extends State<ProScreen> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Project Launcher Pro'),
-        actions: [
-          if (_status.isActive)
-            IconButton(
-              icon: const Icon(Icons.manage_accounts_rounded),
-              onPressed: _presentCustomerCenter,
-              tooltip: 'Manage Subscription',
+      backgroundColor: cs.surface,
+      body: Column(
+        children: [
+          // Top bar with back button
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 24, 12),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: cs.outline.withValues(alpha: 0.2))),
             ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_status.isActive)
-                    _buildActivatedCard(cs)
-                  else
-                    _buildUpgradeCard(cs),
-                  const SizedBox(height: 32),
-                  _buildComparisonTable(cs),
-                  if (!_status.isActive) ...[
-                    const SizedBox(height: 32),
-                    if (_offerings != null)
-                      _buildOfferingsSection(cs)
-                    else
-                      _buildPaywallButton(cs),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: TextButton(
-                        onPressed: _restorePurchases,
-                        child: Text(
-                          'Restore Purchases',
-                          style: TextStyle(color: cs.onSurfaceVariant),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Project Launcher Pro',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                if (_status.isActive)
+                  TextButton.icon(
+                    onPressed: _presentCustomerCenter,
+                    icon: const Icon(Icons.manage_accounts_rounded, size: 16),
+                    label: const Text('Manage'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: cs.onSurfaceVariant,
+                      textStyle: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Content
+          Expanded(
+            child: _isLoading
+                ? Center(
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 600),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_status.isActive)
+                              _buildActivatedCard(cs)
+                            else
+                              _buildUpgradeCard(cs),
+                            const SizedBox(height: 32),
+                            _buildComparisonTable(cs),
+                            if (!_status.isActive) ...[
+                              const SizedBox(height: 32),
+                              if (_offerings != null)
+                                _buildOfferingsSection(cs)
+                              else
+                                _buildPaywallButton(cs),
+                              const SizedBox(height: 16),
+                              Center(
+                                child: TextButton(
+                                  onPressed: _restorePurchases,
+                                  child: Text(
+                                    'Restore Purchases',
+                                    style: AppTypography.inter(
+                                      fontSize: 13,
+                                      color: cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ],
-              ),
-            ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -153,12 +199,12 @@ class _ProScreenState extends State<ProScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFFFFD700).withValues(alpha: 0.15),
-            const Color(0xFFFFA500).withValues(alpha: 0.15),
+            const Color(0xFFFFD700).withValues(alpha: 0.1),
+            const Color(0xFFFFA500).withValues(alpha: 0.08),
           ],
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -168,10 +214,10 @@ class _ProScreenState extends State<ProScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFD700).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  color: const Color(0xFFFFD700).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 28),
+                child: const Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -181,9 +227,9 @@ class _ProScreenState extends State<ProScreen> {
                     Text(
                       _status.planName,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFFFFD700),
-                          ),
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFFFFD700),
+                      ),
                     ),
                     if (_status.expirationDate != null && !_status.isLifetime)
                       Text(
@@ -191,24 +237,32 @@ class _ProScreenState extends State<ProScreen> {
                             ? 'Renews ${_formatDate(_status.expirationDate!)}'
                             : 'Expires ${_formatDate(_status.expirationDate!)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: cs.onSurfaceVariant,
-                            ),
+                          color: cs.onSurfaceVariant,
+                        ),
                       )
                     else if (_status.isLifetime)
                       Text(
                         'Lifetime access - never expires',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: cs.onSurfaceVariant,
-                            ),
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                   ],
                 ),
               ),
-              UkButton(
-                label: 'Manage',
-                variant: UkButtonVariant.outline,
-                size: UkButtonSize.small,
+              TextButton(
                 onPressed: _presentCustomerCenter,
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFFFD700),
+                  backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.1),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    side: BorderSide(color: const Color(0xFFFFD700).withValues(alpha: 0.3)),
+                  ),
+                  textStyle: AppTypography.inter(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                child: const Text('Manage'),
               ),
             ],
           ),
@@ -216,8 +270,8 @@ class _ProScreenState extends State<ProScreen> {
           Text(
             'You have access to all premium features including Year in Review, all themes, and advanced health history.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: cs.onSurfaceVariant,
-                ),
+              color: cs.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -232,12 +286,12 @@ class _ProScreenState extends State<ProScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            cs.primary.withValues(alpha: 0.15),
-            cs.tertiary.withValues(alpha: 0.15),
+            AppColors.accent.withValues(alpha: 0.08),
+            const Color(0xFFE879F9).withValues(alpha: 0.08),
           ],
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,10 +301,10 @@ class _ProScreenState extends State<ProScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFD700).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  color: const Color(0xFFFFD700).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 28),
+                child: const Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -260,15 +314,15 @@ class _ProScreenState extends State<ProScreen> {
                     Text(
                       'Upgrade to Pro',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Monthly, yearly, or lifetime plans available',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
+                        color: cs.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -279,8 +333,8 @@ class _ProScreenState extends State<ProScreen> {
           Text(
             'Unlock Year in Review, all premium themes, advanced health history, and priority support.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurfaceVariant,
-                ),
+              color: cs.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -291,13 +345,54 @@ class _ProScreenState extends State<ProScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Free vs Pro',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
+        // Header row
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(8),
+              topRight: Radius.circular(8),
+            ),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  'Feature',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
               ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'Free',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'Pro',
+                    style: AppTypography.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFFFD700),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 16),
+        // Rows
         _comparisonRow(cs, 'Project management', true, true),
         _comparisonRow(cs, 'Health scores & stale alerts', true, true),
         _comparisonRow(cs, 'Light & Dark themes', true, true),
@@ -305,18 +400,26 @@ class _ProScreenState extends State<ProScreen> {
         _comparisonRow(cs, 'Year in Review', false, true),
         _comparisonRow(cs, 'All premium themes', false, true),
         _comparisonRow(cs, 'Health history & trends', false, true),
-        _comparisonRow(cs, 'Priority support', false, true),
+        _comparisonRow(cs, 'Priority support', false, true, isLast: true),
       ],
     );
   }
 
-  Widget _comparisonRow(ColorScheme cs, String feature, bool inFree, bool inPro) {
+  Widget _comparisonRow(ColorScheme cs, String feature, bool inFree, bool inPro, {bool isLast = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: cs.outline.withValues(alpha: 0.1)),
+          left: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+          right: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+          bottom: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
         ),
+        borderRadius: isLast
+            ? const BorderRadius.only(
+                bottomLeft: Radius.circular(8),
+                bottomRight: Radius.circular(8),
+              )
+            : null,
       ),
       child: Row(
         children: [
@@ -324,24 +427,24 @@ class _ProScreenState extends State<ProScreen> {
             flex: 3,
             child: Text(
               feature,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurface),
             ),
           ),
           Expanded(
             child: Center(
               child: Icon(
-                inFree ? Icons.check_circle : Icons.remove_circle_outline,
-                color: inFree ? Colors.green : cs.onSurfaceVariant.withValues(alpha: 0.3),
-                size: 20,
+                inFree ? Icons.check_circle_rounded : Icons.remove_circle_outline_rounded,
+                color: inFree ? AppColors.success : cs.onSurfaceVariant.withValues(alpha: 0.2),
+                size: 18,
               ),
             ),
           ),
           Expanded(
             child: Center(
               child: Icon(
-                inPro ? Icons.check_circle : Icons.remove_circle_outline,
-                color: inPro ? const Color(0xFFFFD700) : cs.onSurfaceVariant.withValues(alpha: 0.3),
-                size: 20,
+                inPro ? Icons.check_circle_rounded : Icons.remove_circle_outline_rounded,
+                color: inPro ? const Color(0xFFFFD700) : cs.onSurfaceVariant.withValues(alpha: 0.2),
+                size: 18,
               ),
             ),
           ),
@@ -359,21 +462,24 @@ class _ProScreenState extends State<ProScreen> {
         Text(
           'Choose Your Plan',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 16),
         ...packages.map((pkg) => _PackageCard(
-              package: pkg,
-              onPurchase: () => _purchasePackage(pkg),
-            )),
+          package: pkg,
+          onPurchase: () => _purchasePackage(pkg),
+        )),
         const SizedBox(height: 12),
         Center(
-          child: UkButton(
-            label: 'View Full Paywall',
-            variant: UkButtonVariant.outline,
-            icon: Icons.storefront_rounded,
+          child: TextButton.icon(
             onPressed: _presentPaywall,
+            icon: const Icon(Icons.storefront_rounded, size: 16),
+            label: const Text('View Full Paywall'),
+            style: TextButton.styleFrom(
+              foregroundColor: cs.onSurfaceVariant,
+              textStyle: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
         ),
       ],
@@ -382,11 +488,19 @@ class _ProScreenState extends State<ProScreen> {
 
   Widget _buildPaywallButton(ColorScheme cs) {
     return Center(
-      child: UkButton(
-        label: 'View Plans & Subscribe',
-        variant: UkButtonVariant.primary,
-        icon: Icons.workspace_premium,
+      child: TextButton.icon(
         onPressed: _presentPaywall,
+        icon: const Icon(Icons.workspace_premium, size: 18),
+        label: const Text('View Plans & Subscribe'),
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: AppColors.accent,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          textStyle: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }
@@ -400,7 +514,7 @@ class _ProScreenState extends State<ProScreen> {
   }
 }
 
-class _PackageCard extends StatelessWidget {
+class _PackageCard extends StatefulWidget {
   final Package package;
   final VoidCallback onPurchase;
 
@@ -410,23 +524,36 @@ class _PackageCard extends StatelessWidget {
   });
 
   @override
+  State<_PackageCard> createState() => _PackageCardState();
+}
+
+class _PackageCardState extends State<_PackageCard> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final product = package.storeProduct;
-    final isLifetime = package.packageType == PackageType.lifetime;
+    final product = widget.package.storeProduct;
+    final isLifetime = widget.package.packageType == PackageType.lifetime;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outline.withValues(alpha: 0.2)),
-      ),
-      child: InkWell(
-        onTap: onPurchase,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onPurchase,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _isHovered ? cs.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(
+              color: isLifetime
+                  ? const Color(0xFFFFD700).withValues(alpha: 0.4)
+                  : cs.outline.withValues(alpha: 0.2),
+            ),
+          ),
           child: Row(
             children: [
               Expanded(
@@ -436,10 +563,10 @@ class _PackageCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          _packageTitle(package),
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
+                          _packageTitle(widget.package),
+                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: cs.onSurface,
+                          ),
                         ),
                         if (isLifetime) ...[
                           const SizedBox(width: 8),
@@ -447,15 +574,15 @@ class _PackageCard extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFD700).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
                             ),
                             child: Text(
                               'BEST VALUE',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: const Color(0xFFFFD700),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 10,
-                                  ),
+                              style: AppTypography.inter(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFFFFD700),
+                              ),
                             ),
                           ),
                         ],
@@ -465,21 +592,22 @@ class _PackageCard extends StatelessWidget {
                     Text(
                       isLifetime ? 'One-time purchase, never expires' : 'Cancel anytime',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
+                        color: cs.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
               ),
               Text(
                 product.priceString,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: cs.primary,
-                    ),
+                style: AppTypography.mono(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+              Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant, size: 20),
             ],
           ),
         ),

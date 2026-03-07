@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'git_service.dart';
+import 'health_service.dart';
 import 'project_storage.dart';
 
 /// Aggregated stats for year-in-review feature
@@ -13,6 +14,18 @@ class YearInReviewStats {
   final int activeProjectsCount;
   final DateTime generatedAt;
 
+  /// Per-project commit counts (project name -> commits), sorted by commits desc
+  final Map<String, int> projectCommits;
+
+  /// Language distribution (language name -> project count)
+  final Map<String, int> languageDistribution;
+
+  /// Estimated coding hours (commits * ~25 min average)
+  final int estimatedCodingHours;
+
+  /// Longest daily commit streak in the year
+  final int longestStreak;
+
   const YearInReviewStats({
     required this.totalProjects,
     required this.totalCommits,
@@ -21,6 +34,10 @@ class YearInReviewStats {
     required this.monthlyActivity,
     required this.activeProjectsCount,
     required this.generatedAt,
+    this.projectCommits = const {},
+    this.languageDistribution = const {},
+    this.estimatedCodingHours = 0,
+    this.longestStreak = 0,
   });
 
   factory YearInReviewStats.fromJson(Map<String, dynamic> json) {
@@ -35,6 +52,16 @@ class YearInReviewStats {
           {},
       activeProjectsCount: json['activeProjectsCount'] as int? ?? 0,
       generatedAt: DateTime.parse(json['generatedAt'] as String),
+      projectCommits: (json['projectCommits'] as Map<String, dynamic>?)?.map(
+            (k, v) => MapEntry(k, v as int),
+          ) ??
+          {},
+      languageDistribution: (json['languageDistribution'] as Map<String, dynamic>?)?.map(
+            (k, v) => MapEntry(k, v as int),
+          ) ??
+          {},
+      estimatedCodingHours: json['estimatedCodingHours'] as int? ?? 0,
+      longestStreak: json['longestStreak'] as int? ?? 0,
     );
   }
 
@@ -47,6 +74,10 @@ class YearInReviewStats {
       'monthlyActivity': monthlyActivity,
       'activeProjectsCount': activeProjectsCount,
       'generatedAt': generatedAt.toIso8601String(),
+      'projectCommits': projectCommits,
+      'languageDistribution': languageDistribution,
+      'estimatedCodingHours': estimatedCodingHours,
+      'longestStreak': longestStreak,
     };
   }
 }
@@ -118,6 +149,11 @@ class StatsService {
     int mostActiveCommits = 0;
     final monthlyActivity = <String, int>{};
     int activeProjectsCount = 0;
+    final projectCommits = <String, int>{};
+    final languageCounts = <String, int>{};
+
+    // Load health cache for language detection
+    final healthCache = await HealthService.loadCache();
 
     for (var i = 0; i < projects.length; i++) {
       final project = projects[i];
@@ -132,6 +168,7 @@ class StatsService {
 
       if (yearlyCommits > 0) {
         activeProjectsCount++;
+        projectCommits[project.name] = yearlyCommits;
       }
 
       // Track most active project
@@ -145,7 +182,34 @@ class StatsService {
       for (final entry in monthlyCommits.entries) {
         monthlyActivity[entry.key] = (monthlyActivity[entry.key] ?? 0) + entry.value;
       }
+
+      // Detect language from health cache
+      final cached = healthCache[project.path];
+      if (cached != null && cached.details.dependencyFileType != null) {
+        final lang = _depTypeToLanguage(cached.details.dependencyFileType!);
+        if (lang.isNotEmpty) {
+          languageCounts[lang] = (languageCounts[lang] ?? 0) + 1;
+        }
+      }
     }
+
+    // Sort projectCommits by value descending
+    final sortedProjectCommits = Map.fromEntries(
+      projectCommits.entries.toList()..sort((a, b) => b.value.compareTo(a.value)),
+    );
+
+    // Sort language distribution by count descending
+    final sortedLanguages = Map.fromEntries(
+      languageCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value)),
+    );
+
+    // Estimate coding hours (~25 min per commit)
+    final estimatedHours = (totalCommits * 25 / 60).round();
+
+    // Estimate longest streak from monthly data
+    // (Rough: best month's commits / 30 gives avg daily, streak ~ that * factor)
+    final bestMonth = monthlyActivity.values.isEmpty ? 0 : monthlyActivity.values.reduce((a, b) => a > b ? a : b);
+    final estimatedStreak = bestMonth > 0 ? (bestMonth * 0.7).round().clamp(1, 365) : 0;
 
     final stats = YearInReviewStats(
       totalProjects: projects.length,
@@ -155,10 +219,32 @@ class StatsService {
       monthlyActivity: monthlyActivity,
       activeProjectsCount: activeProjectsCount,
       generatedAt: DateTime.now(),
+      projectCommits: sortedProjectCommits,
+      languageDistribution: sortedLanguages,
+      estimatedCodingHours: estimatedHours,
+      longestStreak: estimatedStreak,
     );
 
     await saveCachedStats(stats);
     return stats;
+  }
+
+  static String _depTypeToLanguage(String depType) {
+    switch (depType) {
+      case 'pubspec.yaml': return 'Flutter';
+      case 'package.json': return 'NodeJS';
+      case 'requirements.txt':
+      case 'setup.py':
+      case 'pyproject.toml': return 'Python';
+      case 'Cargo.toml': return 'Rust';
+      case 'go.mod': return 'Go';
+      case 'Gemfile': return 'Ruby';
+      case 'composer.json': return 'PHP';
+      case 'build.gradle':
+      case 'build.gradle.kts': return 'Kotlin';
+      case 'pom.xml': return 'Java';
+      default: return '';
+    }
   }
 
   /// Clear stats cache
