@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import '../models/project.dart';
 import 'project_storage.dart';
 
@@ -75,7 +74,7 @@ class ProjectScanner {
       }
     } catch (e) {
       // Permission denied or other errors - skip this directory
-      debugPrint('Error scanning ${dir.path}: $e');
+      // Permission denied or symlink error — skip silently
     }
   }
 

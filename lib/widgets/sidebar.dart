@@ -105,15 +105,102 @@ class AppSidebar extends StatelessWidget {
             ),
           ),
 
+          // Subscription status at bottom
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: cs.outline.withValues(alpha: 0.15)),
+              ),
+            ),
+            child: isPro
+                ? GestureDetector(
+                    onTap: () => onNavigate('subscription'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD700).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
+                        border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.2)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.workspace_premium, size: 18, color: Color(0xFFFFD700)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Pro Member',
+                                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: const Color(0xFFFFD700),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'Manage subscription',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, size: 16, color: cs.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  )
+                : GestureDetector(
+                    onTap: () => onNavigate('subscription'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppColors.accent.withValues(alpha: 0.1),
+                            const Color(0xFFE879F9).withValues(alpha: 0.08),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
+                        border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.workspace_premium, size: 18, color: Color(0xFFFFD700)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Upgrade to Pro',
+                                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'Unlock all features',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, size: 16, color: cs.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+
           // User profile at bottom
           if (userName != null)
             Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
-                ),
-              ),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Row(
                 children: [
                   CircleAvatar(

@@ -8,6 +8,7 @@ class HomeSidePanel extends StatelessWidget {
   final bool isPro;
   final VoidCallback onYearReviewTap;
   final VoidCallback onHealthTap;
+  final List<double> weeklyActivity;
 
   const HomeSidePanel({
     super.key,
@@ -17,6 +18,7 @@ class HomeSidePanel extends StatelessWidget {
     required this.isPro,
     required this.onYearReviewTap,
     required this.onHealthTap,
+    this.weeklyActivity = const [0, 0, 0, 0, 0, 0, 0],
   });
 
   @override
@@ -93,7 +95,7 @@ class HomeSidePanel extends StatelessWidget {
                 const SizedBox(height: 16),
                 SizedBox(
                   height: 60,
-                  child: _MiniBarChart(),
+                  child: _MiniBarChart(data: weeklyActivity),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -142,7 +144,7 @@ class HomeSidePanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Visualize your 2024 coding journey with Pro.',
+                    'Visualize your ${DateTime.now().year} coding journey with Pro.',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: Colors.white70,
                     ),
@@ -209,19 +211,25 @@ class _HealthRow extends StatelessWidget {
 }
 
 class _MiniBarChart extends StatelessWidget {
-  // Placeholder data - will be replaced with real activity data
-  final List<double> data = const [0.3, 0.7, 0.5, 0.9, 0.6, 0.2, 0.4];
+  final List<double> data;
+
+  const _MiniBarChart({required this.data});
 
   @override
   Widget build(BuildContext context) {
+    final maxVal = data.fold<double>(0, (a, b) => a > b ? a : b);
+    final normalized = maxVal > 0
+        ? data.map((v) => v / maxVal).toList()
+        : data;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
-      children: data.map((value) {
+      children: normalized.map((value) {
         return Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Container(
-              height: 60 * value,
+              height: value > 0 ? 60 * value.clamp(0.05, 1.0) : 2,
               decoration: BoxDecoration(
                 color: AppColors.accent.withValues(alpha: 0.6 + (value * 0.4)),
                 borderRadius: BorderRadius.circular(2),

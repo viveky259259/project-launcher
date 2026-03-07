@@ -24,6 +24,7 @@ import 'referral_screen.dart';
 import 'pro_screen.dart';
 import 'project_settings_screen.dart';
 import 'onboarding_screen.dart';
+import 'subscription_screen.dart';
 
 enum SortMode { lastOpened, name }
 enum ViewMode { list, folder }
@@ -203,6 +204,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int get _needsAttentionCount => _healthScores.values
       .where((s) => s.details.category == HealthCategory.needsAttention).length;
+
+  List<double> get _weeklyActivity {
+    final now = DateTime.now();
+    final counts = List<double>.filled(7, 0);
+    for (final score in _healthScores.values) {
+      final lastCommit = score.details.lastCommitDate;
+      if (lastCommit == null) continue;
+      final daysAgo = now.difference(lastCommit).inDays;
+      if (daysAgo >= 0 && daysAgo < 7) {
+        counts[6 - daysAgo] += 1;
+      }
+    }
+    return counts;
+  }
 
   // --- Actions ---
 
@@ -424,6 +439,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showSubscription() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SubscriptionScreen(
+          onStatusChanged: () {
+            _loadProStatus();
+            _appState?.refreshPremiumStatus();
+          },
+        ),
+      ),
+    );
+  }
+
   void _showHealthDashboard() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const HealthScreen()),
@@ -464,6 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (result != null && result.newlyAdded > 0) {
       _loadProjects();
+      _loadHealthScores();
       setState(() => _lastScanTime = DateTime.now());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -529,6 +558,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() => _viewMode = newMode);
                   _saveViewPreference(newMode);
                 },
+                allTags: _allTags,
+                selectedTag: _selectedTag,
+                onTagChanged: (tag) => setState(() => _selectedTag = tag),
               ),
 
               // Main content
@@ -546,7 +578,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 )
                               : _sortedProjects.isEmpty
                                   ? _buildNoResults()
-                                  : _buildProjectList(pinnedProjects, recentProjects),
+                                  : _viewMode == ViewMode.folder
+                                      ? _buildGroupedList()
+                                      : _buildProjectList(pinnedProjects, recentProjects),
                     ),
 
                     // Right side panel
@@ -558,10 +592,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         isPro: _isPro,
                         onYearReviewTap: _showYearInReview,
                         onHealthTap: _showHealthDashboard,
+                        weeklyActivity: _weeklyActivity,
                       ),
                   ],
                 ),
               ),
+
+              // Upgrade banner for free users
+              if (!_isPro && _projects.isNotEmpty)
+                _buildUpgradeBanner(cs),
 
               // Status bar
               StatusBar(lastScanTime: _lastScanTime),
@@ -698,14 +737,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.terminal_rounded, size: 20),
-            onPressed: () {},
-            tooltip: 'Terminal',
+            onPressed: () => LauncherService.openTerminal(),
+            tooltip: 'New Terminal',
             color: cs.onSurfaceVariant,
           ),
           IconButton(
             icon: const Icon(Icons.code_rounded, size: 20),
-            onPressed: () {},
-            tooltip: 'VS Code',
+            onPressed: () => LauncherService.openVSCode(),
+            tooltip: 'Open VS Code',
             color: cs.onSurfaceVariant,
           ),
           IconButton(
@@ -714,6 +753,34 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'Add project',
             color: cs.onSurfaceVariant,
           ),
+          if (_isPro)
+            Container(
+              margin: const EdgeInsets.only(right: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFD700).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.3)),
+              ),
+              child: GestureDetector(
+                onTap: _showSubscription,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.workspace_premium, size: 12, color: Color(0xFFFFD700)),
+                    const SizedBox(width: 4),
+                    Text(
+                      'PRO',
+                      style: AppTypography.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFFFD700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.settings_rounded, size: 20),
             onPressed: () => setState(() => _showThemeSwitcher = !_showThemeSwitcher),
@@ -765,6 +832,42 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildGroupedList() {
+    final cs = Theme.of(context).colorScheme;
+    final groups = _groupedProjects;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        for (final entry in groups.entries) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8, top: 8),
+            child: Row(
+              children: [
+                Icon(Icons.folder_rounded, size: 16, color: cs.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Text(
+                  entry.key.toUpperCase(),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${entry.value.length}',
+                  style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          ...entry.value.map((p) => _buildCard(p)),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
   Widget _buildCard(Project project) {
     return ProjectCard(
       project: project,
@@ -776,6 +879,48 @@ class _HomeScreenState extends State<HomeScreen> {
       onEditTags: () => _editTags(project),
       onEditNotes: () => _editNotes(project),
       onSettings: () => _openProjectSettings(project),
+    );
+  }
+
+  Widget _buildUpgradeBanner(ColorScheme cs) {
+    return GestureDetector(
+      onTap: _showSubscription,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppColors.accent.withValues(alpha: 0.08),
+              const Color(0xFFE879F9).withValues(alpha: 0.06),
+            ],
+          ),
+          border: Border(top: BorderSide(color: AppColors.accent.withValues(alpha: 0.15))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.workspace_premium, size: 16, color: Color(0xFFFFD700)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Upgrade to Pro for Year in Review, premium themes, and more',
+                style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                'View Plans',
+                style: AppTypography.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.accent),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1003,17 +1148,58 @@ class _ScanDialogState extends State<_ScanDialog> {
           );
         }),
         const SizedBox(height: 8),
-        // Add custom folder button
-        OutlinedButton.icon(
-          onPressed: _browseFolder,
-          icon: const Icon(Icons.add, size: 16),
-          label: const Text('Add Custom Folder...'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: cs.onSurfaceVariant,
-            side: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-            minimumSize: const Size(double.infinity, 42),
-          ),
+        // Add custom folder
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _customPathController,
+                decoration: InputDecoration(
+                  hintText: 'Custom folder path...',
+                  hintStyle: AppTypography.mono(fontSize: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                  prefixIcon: Icon(Icons.folder_open, size: 16, color: cs.onSurfaceVariant),
+                  filled: true,
+                  fillColor: cs.surface,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
+                  ),
+                ),
+                style: AppTypography.mono(fontSize: 12, color: cs.onSurface),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: _browseFolder,
+              icon: const Icon(Icons.folder_open, size: 18),
+              tooltip: 'Browse',
+              style: IconButton.styleFrom(
+                foregroundColor: cs.onSurfaceVariant,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  side: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            TextButton(
+              onPressed: _scanCustomPath,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  side: BorderSide(color: AppColors.accent.withValues(alpha: 0.3)),
+                ),
+              ),
+              child: const Text('Scan'),
+            ),
+          ],
         ),
         const SizedBox(height: 20),
         // Scan depth

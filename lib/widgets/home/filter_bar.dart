@@ -13,6 +13,9 @@ class FilterBar extends StatelessWidget {
   final ValueChanged<StalenessFilter> onStalenessFilterChanged;
   final int viewModeIndex;
   final ValueChanged<int> onViewModeChanged;
+  final List<String> allTags;
+  final String? selectedTag;
+  final ValueChanged<String?> onTagChanged;
 
   const FilterBar({
     super.key,
@@ -24,6 +27,9 @@ class FilterBar extends StatelessWidget {
     required this.onStalenessFilterChanged,
     required this.viewModeIndex,
     required this.onViewModeChanged,
+    this.allTags = const [],
+    this.selectedTag,
+    required this.onTagChanged,
   });
 
   @override
@@ -67,6 +73,20 @@ class FilterBar extends StatelessWidget {
               stalenessFilter == StalenessFilter.staleOnly ? StalenessFilter.all : StalenessFilter.staleOnly,
             ),
           ),
+
+          if (allTags.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Container(width: 1, height: 20, color: cs.outline.withValues(alpha: 0.2)),
+            const SizedBox(width: 12),
+            ...allTags.take(4).map((tag) => Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _FilterPill(
+                label: tag,
+                isSelected: selectedTag == tag,
+                onTap: () => onTagChanged(selectedTag == tag ? null : tag),
+              ),
+            )),
+          ],
 
           const Spacer(),
 

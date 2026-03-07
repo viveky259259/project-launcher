@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/sidebar.dart';
 import 'health_screen.dart';
 import 'referral_screen.dart';
+import 'subscription_screen.dart';
 
 class YearReviewScreen extends StatefulWidget {
   const YearReviewScreen({super.key});
@@ -98,16 +99,23 @@ class _YearReviewScreenState extends State<YearReviewScreen> {
           // Sidebar
           AppSidebar(
             activeRoute: 'year_review',
+            isPro: true,
             onNavigate: (route) {
               if (route == 'year_review') return;
               Navigator.of(context).pop();
-              if (route == 'health') {
+              if (route == 'home' || route == 'projects') {
+                // Already going back to home
+              } else if (route == 'health') {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const HealthScreen()),
                 );
               } else if (route == 'referrals') {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const ReferralScreen()),
+                );
+              } else if (route == 'subscription') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
                 );
               }
             },

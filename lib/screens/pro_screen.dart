@@ -1,9 +1,8 @@
 import 'dart:developer';
 import 'package:flutter/material.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
-import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 import '../services/premium_service.dart';
 import '../theme/app_theme.dart';
+import 'subscription_screen.dart';
 
 class ProScreen extends StatefulWidget {
   final VoidCallback? onStatusChanged;
@@ -17,7 +16,6 @@ class ProScreen extends StatefulWidget {
 class _ProScreenState extends State<ProScreen> {
   bool _isLoading = true;
   SubscriptionStatus _status = const SubscriptionStatus(isActive: false);
-  Offerings? _offerings;
 
   @override
   void initState() {
@@ -28,69 +26,36 @@ class _ProScreenState extends State<ProScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
-    final status = await PremiumService.getSubscriptionStatus();
-    final offerings = await PremiumService.getOfferings();
-
-    if (mounted) {
-      setState(() {
-        _status = status;
-        _offerings = offerings;
-        _isLoading = false;
-      });
+    try {
+      final status = await PremiumService.getSubscriptionStatus();
+      if (mounted) {
+        setState(() {
+          _status = status;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      log('Error loading pro data: $e');
+      if (mounted) {
+        setState(() {
+          _status = const SubscriptionStatus(isActive: false);
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Future<void> _presentPaywall() async {
-    final paywallResult = await RevenueCatUI.presentPaywallIfNeeded(
-      RevenueCatConfig.entitlementId,
+  void _openSubscriptionManagement() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SubscriptionScreen(
+          onStatusChanged: () {
+            widget.onStatusChanged?.call();
+            _loadData();
+          },
+        ),
+      ),
     );
-    log('Paywall result: $paywallResult');
-    widget.onStatusChanged?.call();
-    _loadData();
-  }
-
-  Future<void> _presentCustomerCenter() async {
-    await RevenueCatUI.presentCustomerCenter();
-    widget.onStatusChanged?.call();
-    _loadData();
-  }
-
-  Future<void> _purchasePackage(Package package) async {
-    final result = await PremiumService.purchase(package);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message),
-          backgroundColor: result.success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      if (result.success) {
-        widget.onStatusChanged?.call();
-        _loadData();
-      }
-    }
-  }
-
-  Future<void> _restorePurchases() async {
-    final result = await PremiumService.restorePurchases();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message),
-          backgroundColor: result.success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      if (result.success) {
-        widget.onStatusChanged?.call();
-        _loadData();
-      }
-    }
   }
 
   @override
@@ -124,7 +89,7 @@ class _ProScreenState extends State<ProScreen> {
                 const Spacer(),
                 if (_status.isActive)
                   TextButton.icon(
-                    onPressed: _presentCustomerCenter,
+                    onPressed: _openSubscriptionManagement,
                     icon: const Icon(Icons.manage_accounts_rounded, size: 16),
                     label: const Text('Manage'),
                     style: TextButton.styleFrom(
@@ -162,16 +127,13 @@ class _ProScreenState extends State<ProScreen> {
                             _buildComparisonTable(cs),
                             if (!_status.isActive) ...[
                               const SizedBox(height: 32),
-                              if (_offerings != null)
-                                _buildOfferingsSection(cs)
-                              else
-                                _buildPaywallButton(cs),
+                              _buildSubscribeButton(cs),
                               const SizedBox(height: 16),
                               Center(
                                 child: TextButton(
-                                  onPressed: _restorePurchases,
+                                  onPressed: () => _openSubscriptionManagement(),
                                   child: Text(
-                                    'Restore Purchases',
+                                    'Already subscribed? Verify',
                                     style: AppTypography.inter(
                                       fontSize: 13,
                                       color: cs.onSurfaceVariant,
@@ -251,7 +213,7 @@ class _ProScreenState extends State<ProScreen> {
                 ),
               ),
               TextButton(
-                onPressed: _presentCustomerCenter,
+                onPressed: _openSubscriptionManagement,
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFFFFD700),
                   backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.1),
@@ -319,7 +281,7 @@ class _ProScreenState extends State<ProScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Monthly, yearly, or lifetime plans available',
+                      '\$100/month — 6 months free trial',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: cs.onSurfaceVariant,
                       ),
@@ -345,7 +307,6 @@ class _ProScreenState extends State<ProScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header row
         Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           decoration: BoxDecoration(
@@ -360,39 +321,19 @@ class _ProScreenState extends State<ProScreen> {
             children: [
               Expanded(
                 flex: 3,
-                child: Text(
-                  'Feature',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
+                child: Text('Feature', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant)),
+              ),
+              Expanded(
+                child: Center(child: Text('Free', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant))),
               ),
               Expanded(
                 child: Center(
-                  child: Text(
-                    'Free',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    'Pro',
-                    style: AppTypography.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFFFFD700),
-                    ),
-                  ),
+                  child: Text('Pro', style: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFFFFD700))),
                 ),
               ),
             ],
           ),
         ),
-        // Rows
         _comparisonRow(cs, 'Project management', true, true),
         _comparisonRow(cs, 'Health scores & stale alerts', true, true),
         _comparisonRow(cs, 'Light & Dark themes', true, true),
@@ -425,10 +366,7 @@ class _ProScreenState extends State<ProScreen> {
         children: [
           Expanded(
             flex: 3,
-            child: Text(
-              feature,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurface),
-            ),
+            child: Text(feature, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurface)),
           ),
           Expanded(
             child: Center(
@@ -453,43 +391,10 @@ class _ProScreenState extends State<ProScreen> {
     );
   }
 
-  Widget _buildOfferingsSection(ColorScheme cs) {
-    final packages = _offerings!.current!.availablePackages;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Choose Your Plan',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 16),
-        ...packages.map((pkg) => _PackageCard(
-          package: pkg,
-          onPurchase: () => _purchasePackage(pkg),
-        )),
-        const SizedBox(height: 12),
-        Center(
-          child: TextButton.icon(
-            onPressed: _presentPaywall,
-            icon: const Icon(Icons.storefront_rounded, size: 16),
-            label: const Text('View Full Paywall'),
-            style: TextButton.styleFrom(
-              foregroundColor: cs.onSurfaceVariant,
-              textStyle: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPaywallButton(ColorScheme cs) {
+  Widget _buildSubscribeButton(ColorScheme cs) {
     return Center(
       child: TextButton.icon(
-        onPressed: _presentPaywall,
+        onPressed: _openSubscriptionManagement,
         icon: const Icon(Icons.workspace_premium, size: 18),
         label: const Text('View Plans & Subscribe'),
         style: TextButton.styleFrom(
@@ -511,120 +416,5 @@ class _ProScreenState extends State<ProScreen> {
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
-}
-
-class _PackageCard extends StatefulWidget {
-  final Package package;
-  final VoidCallback onPurchase;
-
-  const _PackageCard({
-    required this.package,
-    required this.onPurchase,
-  });
-
-  @override
-  State<_PackageCard> createState() => _PackageCardState();
-}
-
-class _PackageCardState extends State<_PackageCard> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final product = widget.package.storeProduct;
-    final isLifetime = widget.package.packageType == PackageType.lifetime;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onPurchase,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: _isHovered ? cs.surface : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(
-              color: isLifetime
-                  ? const Color(0xFFFFD700).withValues(alpha: 0.4)
-                  : cs.outline.withValues(alpha: 0.2),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          _packageTitle(widget.package),
-                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: cs.onSurface,
-                          ),
-                        ),
-                        if (isLifetime) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFD700).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(AppRadius.sm),
-                            ),
-                            child: Text(
-                              'BEST VALUE',
-                              style: AppTypography.inter(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFFFFD700),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isLifetime ? 'One-time purchase, never expires' : 'Cancel anytime',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                product.priceString,
-                style: AppTypography.mono(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: cs.onSurface,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant, size: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _packageTitle(Package package) {
-    switch (package.packageType) {
-      case PackageType.monthly:
-        return 'Monthly';
-      case PackageType.annual:
-        return 'Yearly';
-      case PackageType.lifetime:
-        return 'Lifetime';
-      default:
-        return package.storeProduct.title;
-    }
   }
 }

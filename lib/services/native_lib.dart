@@ -47,8 +47,6 @@ class NativeLib {
       'macos/Frameworks/$libName',
       // Development: in rust/target/release
       'rust/target/release/$libName',
-      // Absolute path for development
-      '${Platform.environment['HOME']}/Documents/Projects/claude/project_launcher/rust/target/release/$libName',
     ];
 
     for (final path in paths) {

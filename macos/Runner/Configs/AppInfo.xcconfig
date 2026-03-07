@@ -8,7 +8,7 @@
 PRODUCT_NAME = Project Launcher
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.vivekyadav.projectlauncher
+PRODUCT_BUNDLE_IDENTIFIER = com.stringswaytech.projectbrowser
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Vivek Yadav. All rights reserved.

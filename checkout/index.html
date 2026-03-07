@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Launcher — Checkout</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      background: #000;
+      color: #e5e5e5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      max-width: 480px;
+      width: 100%;
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .logo {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #22d3ee20, #e879f920);
+      border: 1px solid #22d3ee40;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 28px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #a3a3a3;
+      font-size: 14px;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+
+    .status {
+      padding: 16px 24px;
+      border-radius: 12px;
+      background: #111;
+      border: 1px solid #222;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+
+    .status.loading { border-color: #22d3ee40; color: #22d3ee; }
+    .status.success { border-color: #22c55e40; color: #22c55e; }
+    .status.error { border-color: #ef444440; color: #ef4444; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #22d3ee40;
+      border-top-color: #22d3ee;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .plan-card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+      text-align: left;
+    }
+
+    .plan-card .plan-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+
+    .plan-card .plan-price {
+      font-size: 13px;
+      color: #a3a3a3;
+    }
+
+    .btn-retry {
+      background: #22d3ee;
+      color: #000;
+      border: none;
+      padding: 12px 32px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-retry:hover { opacity: 0.85; }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 12px;
+      color: #525252;
+    }
+
+    .footer a {
+      color: #737373;
+      text-decoration: none;
+    }
+
+    .footer a:hover { text-decoration: underline; }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">🚀</div>
+    <h1>Project Launcher Pro</h1>
+    <p class="subtitle">Complete your purchase to unlock all premium features.</p>
+
+    <div id="plan-info" class="plan-card hidden">
+      <div class="plan-name" id="plan-name"></div>
+      <div class="plan-price" id="plan-price"></div>
+    </div>
+
+    <div id="status" class="status loading">
+      <span class="spinner"></span> Initializing checkout...
+    </div>
+
+    <button id="retry-btn" class="btn-retry hidden" onclick="openCheckout()">
+      Try Again
+    </button>
+
+    <div class="footer">
+      Payments secured by <a href="https://paddle.com" target="_blank">Paddle</a>.
+      <br>
+      <a href="mailto:support@projectlauncher.dev">Need help?</a>
+    </div>
+  </div>
+
+  <!-- Paddle.js -->
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+  <script>
+    // ─── Configuration ───
+    // IMPORTANT: Replace with your Paddle client-side token (NOT the API key)
+    // Find it in Paddle Dashboard → Developer Tools → Authentication
+    const PADDLE_CLIENT_TOKEN = 'test_REPLACE_WITH_CLIENT_TOKEN';
+    const IS_SANDBOX = true;
+
+    // ─── Read URL params ───
+    const params = new URLSearchParams(window.location.search);
+    const priceId = params.get('price_id') || 'pri_01kk4w25sv27phfgq2tzwm802d';
+    const customData = params.get('custom_data');
+    const customerId = params.get('customer_id');
+
+    let parsedCustomData = {};
+    try {
+      parsedCustomData = customData ? JSON.parse(customData) : {};
+    } catch (e) {}
+
+    // Plan display names
+    const planNames = {
+      'pri_01kk4w25sv27phfgq2tzwm802d': { name: 'Pro Monthly', price: '$100.00/month — 6 month free trial' },
+      // Add your yearly and lifetime price IDs here:
+      // 'pri_YEARLY_ID': { name: 'Pro Yearly', price: '$XX.XX/year' },
+      // 'pri_LIFETIME_ID': { name: 'Pro Lifetime', price: '$XX.XX one-time' },
+    };
+
+    // ─── UI helpers ───
+    const statusEl = document.getElementById('status');
+    const retryBtn = document.getElementById('retry-btn');
+    const planInfo = document.getElementById('plan-info');
+
+    function showStatus(message, type) {
+      statusEl.className = `status ${type}`;
+      if (type === 'loading') {
+        statusEl.innerHTML = `<span class="spinner"></span> ${message}`;
+      } else {
+        statusEl.textContent = message;
+      }
+    }
+
+    function showPlan() {
+      const plan = planNames[priceId];
+      if (plan) {
+        document.getElementById('plan-name').textContent = plan.name;
+        document.getElementById('plan-price').textContent = plan.price;
+        planInfo.classList.remove('hidden');
+      }
+    }
+
+    // ─── Initialize Paddle ───
+    function initPaddle() {
+      if (!priceId) {
+        showStatus('Missing price_id parameter. Please try again from the app.', 'error');
+        return;
+      }
+
+      showPlan();
+
+      try {
+        if (IS_SANDBOX) {
+          Paddle.Environment.set('sandbox');
+        }
+
+        Paddle.Initialize({
+          token: PADDLE_CLIENT_TOKEN,
+          eventCallback: function(event) {
+            switch (event.name) {
+              case 'checkout.completed':
+                showStatus('Payment successful! You can return to the app — Pro features will activate automatically.', 'success');
+                retryBtn.classList.add('hidden');
+                break;
+              case 'checkout.closed':
+                showStatus('Checkout closed. Click below to try again.', 'error');
+                retryBtn.classList.remove('hidden');
+                break;
+              case 'checkout.error':
+                showStatus('Checkout error. Please try again.', 'error');
+                retryBtn.classList.remove('hidden');
+                break;
+            }
+          }
+        });
+
+        // Auto-open checkout
+        openCheckout();
+      } catch (e) {
+        showStatus('Failed to initialize payment system. Please try again.', 'error');
+        retryBtn.classList.remove('hidden');
+        console.error('Paddle init error:', e);
+      }
+    }
+
+    function openCheckout() {
+      showStatus('Opening checkout...', 'loading');
+      retryBtn.classList.add('hidden');
+
+      const checkoutSettings = {
+        items: [{ priceId: priceId, quantity: 1 }],
+        customData: parsedCustomData,
+      };
+
+      // Pre-fill customer if we have their ID
+      if (customerId) {
+        checkoutSettings.customer = { id: customerId };
+      }
+
+      try {
+        Paddle.Checkout.open(checkoutSettings);
+        showStatus('Complete your purchase in the checkout overlay.', 'loading');
+      } catch (e) {
+        showStatus('Could not open checkout. Please try again.', 'error');
+        retryBtn.classList.remove('hidden');
+        console.error('Checkout open error:', e);
+      }
+    }
+
+    // ─── Start ───
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initPaddle);
+    } else {
+      initPaddle();
+    }
+  </script>
+</body>
+</html>

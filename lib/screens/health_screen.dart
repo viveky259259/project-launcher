@@ -131,11 +131,7 @@ class _HealthScreenState extends State<HealthScreen> {
                     label: const Text('Refresh Analytics'),
                     style: TextButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
                   ),
-                IconButton(
-                  icon: const Icon(Icons.settings_rounded, size: 20),
-                  onPressed: () {},
-                  color: cs.onSurfaceVariant,
-                ),
+                const SizedBox(width: 8),
               ],
             ),
           ),

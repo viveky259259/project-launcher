@@ -21,6 +21,23 @@ class LauncherService {
     }
   }
 
+  static Future<void> openTerminal() async {
+    await Process.run('open', ['-a', 'Terminal']);
+  }
+
+  static Future<void> openVSCode() async {
+    try {
+      final result = await Process.run('which', ['code']);
+      if (result.exitCode == 0) {
+        await Process.run('code', []);
+      } else {
+        await Process.run('open', ['-a', 'Visual Studio Code']);
+      }
+    } catch (e) {
+      await Process.run('open', ['-a', 'Visual Studio Code']);
+    }
+  }
+
   static Future<void> openInFinder(String path) async {
     await Process.run('open', [path]);
   }

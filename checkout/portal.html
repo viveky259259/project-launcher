@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Launcher — Manage Subscription</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      background: #000;
+      color: #e5e5e5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      max-width: 480px;
+      width: 100%;
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .logo {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #ffd70020, #ffa50020);
+      border: 1px solid #ffd70040;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 28px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #a3a3a3;
+      font-size: 14px;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+
+    .card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 13px;
+      color: #a3a3a3;
+      line-height: 1.5;
+    }
+
+    .status {
+      padding: 16px 24px;
+      border-radius: 12px;
+      background: #111;
+      border: 1px solid #222;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+
+    .status.loading { border-color: #22d3ee40; color: #22d3ee; }
+    .status.info { border-color: #ffd70040; color: #ffd700; }
+    .status.error { border-color: #ef444440; color: #ef4444; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #22d3ee40;
+      border-top-color: #22d3ee;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn:hover { opacity: 0.85; }
+
+    .btn-primary {
+      background: #22d3ee;
+      color: #000;
+    }
+
+    .btn-secondary {
+      background: #222;
+      color: #e5e5e5;
+      border: 1px solid #333;
+    }
+
+    .btn-danger {
+      background: transparent;
+      color: #ef4444;
+      border: 1px solid #ef444440;
+    }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 12px;
+      color: #525252;
+    }
+
+    .footer a {
+      color: #737373;
+      text-decoration: none;
+    }
+
+    .footer a:hover { text-decoration: underline; }
+
+    .hidden { display: none; }
+
+    #sub-details .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #1a1a1a;
+      font-size: 13px;
+    }
+
+    #sub-details .row:last-child { border-bottom: none; }
+    #sub-details .row .label { color: #737373; }
+    #sub-details .row .value { color: #e5e5e5; font-weight: 500; }
+    #sub-details .row .value.active { color: #22c55e; }
+    #sub-details .row .value.cancelled { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">⚙️</div>
+    <h1>Manage Subscription</h1>
+    <p class="subtitle">View and manage your Project Launcher Pro subscription.</p>
+
+    <div id="status" class="status loading">
+      <span class="spinner"></span> Loading subscription details...
+    </div>
+
+    <div id="sub-details" class="card hidden"></div>
+
+    <div id="actions" class="actions hidden">
+      <button class="btn btn-primary" onclick="updatePayment()">Update Payment Method</button>
+      <a href="mailto:support@projectlauncher.dev" class="btn btn-secondary">Contact Support</a>
+      <button id="cancel-btn" class="btn btn-danger hidden" onclick="confirmCancel()">Cancel Subscription</button>
+    </div>
+
+    <div class="footer">
+      Billing by <a href="https://paddle.com" target="_blank">Paddle</a>.
+      <br>
+      <a href="mailto:support@projectlauncher.dev">Need help?</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+  <script>
+    // ─── Configuration ───
+    const PADDLE_CLIENT_TOKEN = 'test_REPLACE_WITH_CLIENT_TOKEN';
+    const PADDLE_API_BASE = 'https://sandbox-api.paddle.com';
+    // For production: 'https://api.paddle.com'
+    const IS_SANDBOX = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const customerId = params.get('customer_id');
+
+    const statusEl = document.getElementById('status');
+    const detailsEl = document.getElementById('sub-details');
+    const actionsEl = document.getElementById('actions');
+    const cancelBtn = document.getElementById('cancel-btn');
+
+    function showStatus(message, type) {
+      statusEl.className = `status ${type}`;
+      if (type === 'loading') {
+        statusEl.innerHTML = `<span class="spinner"></span> ${message}`;
+      } else {
+        statusEl.textContent = message;
+      }
+    }
+
+    async function init() {
+      if (!customerId) {
+        showStatus('No customer ID provided. Open this page from the app.', 'error');
+        return;
+      }
+
+      if (IS_SANDBOX) {
+        Paddle.Environment.set('sandbox');
+      }
+
+      Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN });
+
+      showStatus('Looking up your subscription...', 'loading');
+
+      // Show subscription info
+      // Note: For security, subscription lookup should go through your backend.
+      // This is a simplified client-side version for demonstration.
+      showStatus('Subscription management is available. Use the options below.', 'info');
+      actionsEl.classList.remove('hidden');
+      cancelBtn.classList.remove('hidden');
+    }
+
+    function updatePayment() {
+      // Paddle.js can open an update payment method overlay
+      // This requires a subscription ID — in production, fetch from your backend
+      showStatus('To update your payment method, please contact support.', 'info');
+    }
+
+    function confirmCancel() {
+      if (confirm('Are you sure you want to cancel your subscription? You\'ll keep access until the end of your current billing period.')) {
+        showStatus('To cancel, please contact support@projectlauncher.dev and we\'ll process it immediately.', 'info');
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

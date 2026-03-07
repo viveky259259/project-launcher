@@ -35,8 +35,7 @@ class ProjectLauncherAppState extends State<ProjectLauncherApp> {
   }
 
   void _setupPremiumListener() {
-    PremiumService.addCustomerInfoListener((customerInfo) {
-      final isActive = customerInfo.entitlements.all[RevenueCatConfig.entitlementId]?.isActive ?? false;
+    PremiumService.addStatusListener((isActive) {
       if (mounted && isActive != isPro) {
         setState(() => isPro = isActive);
       }

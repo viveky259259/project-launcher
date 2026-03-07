@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer';
 import 'dart:io';
 import '../models/project.dart';
 
@@ -32,7 +33,7 @@ class ProjectStorage {
       final List<dynamic> jsonList = json.decode(content);
       return jsonList.map((j) => Project.fromJson(j)).toList();
     } catch (e) {
-      print('Error loading projects: $e');
+      log('Error loading projects: $e');
       return [];
     }
   }
@@ -44,7 +45,7 @@ class ProjectStorage {
       final jsonList = projects.map((p) => p.toJson()).toList();
       await file.writeAsString(json.encode(jsonList));
     } catch (e) {
-      print('Error saving projects: $e');
+      log('Error saving projects: $e');
     }
   }
 
