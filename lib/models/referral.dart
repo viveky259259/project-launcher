@@ -55,6 +55,7 @@ class ReferralData {
 enum ReferralReward {
   darkThemeMidnight,
   darkThemeOcean,
+  founderBadge,
 }
 
 extension ReferralRewardExtension on ReferralReward {
@@ -64,6 +65,8 @@ extension ReferralRewardExtension on ReferralReward {
         return 'dark_theme_midnight';
       case ReferralReward.darkThemeOcean:
         return 'dark_theme_ocean';
+      case ReferralReward.founderBadge:
+        return 'founder_badge';
     }
   }
 
@@ -73,6 +76,8 @@ extension ReferralRewardExtension on ReferralReward {
         return 'Midnight Theme';
       case ReferralReward.darkThemeOcean:
         return 'Ocean Theme';
+      case ReferralReward.founderBadge:
+        return 'Founder Badge';
     }
   }
 
@@ -82,6 +87,8 @@ extension ReferralRewardExtension on ReferralReward {
         return 'A deep, dark purple theme for late night coding';
       case ReferralReward.darkThemeOcean:
         return 'A calm, blue-tinted dark theme inspired by the ocean';
+      case ReferralReward.founderBadge:
+        return 'Exclusive profile badge and priority support access';
     }
   }
 
@@ -91,8 +98,12 @@ extension ReferralRewardExtension on ReferralReward {
         return 3;
       case ReferralReward.darkThemeOcean:
         return 5;
+      case ReferralReward.founderBadge:
+        return 10;
     }
   }
+
+  bool get isTheme => this != ReferralReward.founderBadge;
 
   static ReferralReward? fromId(String id) {
     for (final reward in ReferralReward.values) {

@@ -525,6 +525,12 @@ class _RewardCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [Color(0xFF0077B6), Color(0xFF023E8A)],
         );
+      case ReferralReward.founderBadge:
+        return const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFFFD700), Color(0xFFFF8C00)],
+        );
     }
   }
 }
