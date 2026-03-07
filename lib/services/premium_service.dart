@@ -8,14 +8,10 @@ import 'package:uuid/uuid.dart';
 
 /// Paddle Billing configuration
 class PaddleConfig {
-  // ── API ──
-  // Set via --dart-define=PADDLE_API_KEY=your_key during build
-  static const String apiKey = String.fromEnvironment(
-    'PADDLE_API_KEY',
-    defaultValue: '',
-  );
-
-  static const bool isSandbox = true;
+  // ── API (injected via --dart-define from .env) ──
+  static const String apiKey = String.fromEnvironment('PADDLE_API_KEY');
+  static const bool isSandbox =
+      String.fromEnvironment('PADDLE_IS_SANDBOX', defaultValue: 'true') == 'true';
 
   static String get apiBaseUrl =>
       isSandbox ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
