@@ -1,14 +1,18 @@
 #!/bin/bash
 set -e
 
+# ─── Load .env ───
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+else
+  echo "ERROR: .env file not found. Create one from .env.example"
+  exit 1
+fi
+
 # ─── Configuration ───
 APP_NAME="Project Launcher"
 BUNDLE_ID="com.stringswaytech.projectbrowser"
-SIGNING_IDENTITY="Developer ID Application: Vivek Yadav (CU3457GT8T)"
-APPLE_ID="viveky259259@gmail.com"
-TEAM_ID="CU3457GT8T"
-APP_SPECIFIC_PASSWORD="${APP_SPECIFIC_PASSWORD:?Set APP_SPECIFIC_PASSWORD env var}"
-PADDLE_API_KEY="${PADDLE_API_KEY:?Set PADDLE_API_KEY env var}"
+SIGNING_IDENTITY="Developer ID Application: Vivek Yadav (${TEAM_ID})"
 KEYCHAIN_PROFILE="ProjectLauncherNotarize"
 
 # Read version from pubspec.yaml
@@ -37,7 +41,9 @@ echo ""
 echo "▸ Step 1/7: Cleaning and building macOS app..."
 flutter clean
 flutter pub get
-flutter build macos --release --dart-define=PADDLE_API_KEY="$PADDLE_API_KEY"
+flutter build macos --release \
+  --dart-define=PADDLE_API_KEY="$PADDLE_API_KEY" \
+  --dart-define=PADDLE_IS_SANDBOX="$PADDLE_IS_SANDBOX"
 echo "  ✓ Built $APP_PATH"
 echo ""
 
