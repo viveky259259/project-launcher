@@ -6,7 +6,7 @@ import '../services/project_storage.dart';
 import '../services/premium_service.dart';
 import '../screens/pro_screen.dart';
 import '../main.dart';
-import '../kit/kit.dart';
+import '../theme/app_theme.dart';
 
 class HealthScreen extends StatefulWidget {
   const HealthScreen({super.key});
@@ -22,7 +22,7 @@ class _HealthScreenState extends State<HealthScreen> {
   int _progress = 0;
   int _total = 0;
   List<_ProjectHealthData> _projectsHealth = [];
-  HealthCategory? _filterCategory;
+  int _filterIndex = 0; // 0=All, 1=Healthy, 2=Needs Attention, 3=Critical
 
   @override
   void initState() {
@@ -60,7 +60,6 @@ class _HealthScreenState extends State<HealthScreen> {
       healthData.add(_ProjectHealthData(project: project, health: health));
     }
 
-    // Sort by health score (lowest first for attention)
     healthData.sort((a, b) =>
         a.health.details.totalScore.compareTo(b.health.details.totalScore));
 
@@ -70,6 +69,15 @@ class _HealthScreenState extends State<HealthScreen> {
         _isLoading = false;
         _isRefreshing = false;
       });
+    }
+  }
+
+  HealthCategory? get _filterCategory {
+    switch (_filterIndex) {
+      case 1: return HealthCategory.healthy;
+      case 2: return HealthCategory.needsAttention;
+      case 3: return HealthCategory.critical;
+      default: return null;
     }
   }
 
@@ -87,124 +95,136 @@ class _HealthScreenState extends State<HealthScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final healthyCount = _countByCategory(HealthCategory.healthy);
+    final attentionCount = _countByCategory(HealthCategory.needsAttention);
+    final criticalCount = _countByCategory(HealthCategory.critical);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Project Health'),
-        actions: [
-          if (!_isLoading)
-            IconButton(
-              icon: _isRefreshing
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: cs.primary,
-                      ),
-                    )
-                  : const Icon(Icons.refresh),
-              tooltip: 'Refresh all',
-              onPressed: _isRefreshing ? null : () => _loadHealthData(forceRefresh: true),
+      body: Column(
+        children: [
+          // Top bar
+          Container(
+            height: 64,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: cs.outline.withValues(alpha: 0.15))),
             ),
-        ],
-      ),
-      body: _isLoading
-          ? _buildLoadingView(cs)
-          : Column(
+            child: Row(
               children: [
-                // Summary cards
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      _SummaryCard(
-                        label: 'Healthy',
-                        count: _countByCategory(HealthCategory.healthy),
-                        color: Colors.green,
-                        isSelected: _filterCategory == HealthCategory.healthy,
-                        onTap: () => setState(() {
-                          _filterCategory = _filterCategory == HealthCategory.healthy
-                              ? null
-                              : HealthCategory.healthy;
-                        }),
-                      ),
-                      const SizedBox(width: 12),
-                      _SummaryCard(
-                        label: 'Needs Attention',
-                        count: _countByCategory(HealthCategory.needsAttention),
-                        color: Colors.orange,
-                        isSelected: _filterCategory == HealthCategory.needsAttention,
-                        onTap: () => setState(() {
-                          _filterCategory = _filterCategory == HealthCategory.needsAttention
-                              ? null
-                              : HealthCategory.needsAttention;
-                        }),
-                      ),
-                      const SizedBox(width: 12),
-                      _SummaryCard(
-                        label: 'Critical',
-                        count: _countByCategory(HealthCategory.critical),
-                        color: Colors.red,
-                        isSelected: _filterCategory == HealthCategory.critical,
-                        onTap: () => setState(() {
-                          _filterCategory = _filterCategory == HealthCategory.critical
-                              ? null
-                              : HealthCategory.critical;
-                        }),
-                      ),
-                    ],
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                  color: cs.onSurface,
                 ),
-
-                // Project list
-                Expanded(
-                  child: _filteredProjects.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No projects in this category',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurfaceVariant,
-                                ),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _filteredProjects.length + 1,
-                          itemBuilder: (context, index) {
-                            if (index < _filteredProjects.length) {
-                              final data = _filteredProjects[index];
-                              return _ProjectHealthCard(
-                                data: data,
-                                onRefresh: () async {
-                                  await HealthService.invalidateCache(data.project.path);
-                                  _loadHealthData(forceRefresh: false);
-                                },
-                              );
-                            }
-                            // Health History teaser card at the bottom
-                            return _HealthHistoryTeaser(
-                              isPro: _isPro,
-                              onTap: () {
-                                if (!_isPro) {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => ProScreen(
-                                        onStatusChanged: () {
-                                          ProjectLauncherApp.of(context)?.refreshPremiumStatus();
-                                          _loadProStatus();
-                                        },
-                                      ),
-                                    ),
-                                  );
-                                }
-                              },
-                            );
-                          },
-                        ),
+                const SizedBox(width: 8),
+                Text('Project Health', style: Theme.of(context).textTheme.titleLarge),
+                const Spacer(),
+                if (!_isLoading)
+                  TextButton.icon(
+                    onPressed: _isRefreshing ? null : () => _loadHealthData(forceRefresh: true),
+                    icon: _isRefreshing
+                        ? SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                          )
+                        : const Icon(Icons.refresh, size: 18),
+                    label: const Text('Refresh Analytics'),
+                    style: TextButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.settings_rounded, size: 20),
+                  onPressed: () {},
+                  color: cs.onSurfaceVariant,
                 ),
               ],
             ),
+          ),
+
+          if (_isLoading)
+            Expanded(child: _buildLoadingView(cs))
+          else
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  // Summary cards with circular progress rings
+                  Row(
+                    children: [
+                      _SummaryRingCard(
+                        label: 'Healthy',
+                        count: healthyCount,
+                        total: _projectsHealth.length,
+                        color: AppColors.success,
+                        isSelected: _filterIndex == 1,
+                        onTap: () => setState(() => _filterIndex = _filterIndex == 1 ? 0 : 1),
+                      ),
+                      const SizedBox(width: 12),
+                      _SummaryRingCard(
+                        label: 'Needs Attention',
+                        count: attentionCount,
+                        total: _projectsHealth.length,
+                        color: AppColors.warning,
+                        isSelected: _filterIndex == 2,
+                        onTap: () => setState(() => _filterIndex = _filterIndex == 2 ? 0 : 2),
+                      ),
+                      const SizedBox(width: 12),
+                      _SummaryRingCard(
+                        label: 'Critical',
+                        count: criticalCount,
+                        total: _projectsHealth.length,
+                        color: AppColors.error,
+                        isSelected: _filterIndex == 3,
+                        onTap: () => setState(() => _filterIndex = _filterIndex == 3 ? 0 : 3),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Tab bar
+                  _CategoryTabs(
+                    selectedIndex: _filterIndex,
+                    totalCount: _projectsHealth.length,
+                    onChanged: (i) => setState(() => _filterIndex = i),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Project health cards
+                  if (_filteredProjects.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(48),
+                        child: Text(
+                          'No projects in this category',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                        ),
+                      ),
+                    )
+                  else
+                    ..._filteredProjects.map((data) => _HealthCard(data: data)),
+
+                  // Health History teaser
+                  _HealthHistoryTeaser(
+                    isPro: _isPro,
+                    onTap: () {
+                      if (!_isPro) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ProScreen(
+                              onStatusChanged: () {
+                                ProjectLauncherApp.of(context)?.refreshPremiumStatus();
+                                _loadProStatus();
+                              },
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -213,19 +233,13 @@ class _HealthScreenState extends State<HealthScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(),
+          const CircularProgressIndicator(color: AppColors.accent),
           const SizedBox(height: 24),
-          Text(
-            'Analyzing project health...',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Analyzing project health...', style: Theme.of(context).textTheme.titleMedium),
           if (_total > 0) ...[
             const SizedBox(height: 16),
-            Text(
-              '$_progress / $_total',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
+            Text('$_progress / $_total',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
         ],
@@ -237,62 +251,101 @@ class _HealthScreenState extends State<HealthScreen> {
 class _ProjectHealthData {
   final Project project;
   final CachedHealthScore health;
-
   const _ProjectHealthData({required this.project, required this.health});
 }
 
-class _SummaryCard extends StatelessWidget {
+// --- Summary Ring Card ---
+
+class _SummaryRingCard extends StatefulWidget {
   final String label;
   final int count;
+  final int total;
   final Color color;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _SummaryCard({
+  const _SummaryRingCard({
     required this.label,
     required this.count,
+    required this.total,
     required this.color,
     required this.isSelected,
     required this.onTap,
   });
 
   @override
+  State<_SummaryRingCard> createState() => _SummaryRingCardState();
+}
+
+class _SummaryRingCardState extends State<_SummaryRingCard> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final fraction = widget.total > 0 ? widget.count / widget.total : 0.0;
 
     return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isSelected ? color.withValues(alpha: 0.15) : cs.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? color : cs.outline.withValues(alpha: 0.2),
-              width: isSelected ? 2 : 1,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: widget.isSelected
+                  ? widget.color.withValues(alpha: 0.1)
+                  : cs.surface,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(
+                color: widget.isSelected
+                    ? widget.color.withValues(alpha: 0.5)
+                    : _isHovered
+                        ? cs.outline.withValues(alpha: 0.3)
+                        : cs.outline.withValues(alpha: 0.15),
+              ),
             ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                count.toString(),
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: color,
+            child: Row(
+              children: [
+                // Count and label
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.label,
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.count.toString(),
+                        style: AppTypography.mono(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: widget.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Circular ring
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: CustomPaint(
+                    painter: _RingPainter(
+                      fraction: fraction,
+                      color: widget.color,
+                      backgroundColor: widget.color.withValues(alpha: 0.15),
                     ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -300,139 +353,216 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _ProjectHealthCard extends StatelessWidget {
-  final _ProjectHealthData data;
-  final VoidCallback onRefresh;
+class _RingPainter extends CustomPainter {
+  final double fraction;
+  final Color color;
+  final Color backgroundColor;
 
-  const _ProjectHealthCard({
-    required this.data,
-    required this.onRefresh,
+  _RingPainter({required this.fraction, required this.color, required this.backgroundColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 3;
+    const strokeWidth = 5.0;
+
+    // Background ring
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..color = backgroundColor,
+    );
+
+    // Progress arc
+    if (fraction > 0) {
+      final rect = Rect.fromCircle(center: center, radius: radius);
+      canvas.drawArc(
+        rect,
+        -1.5708, // Start from top (-90 degrees)
+        fraction * 6.2832, // Full circle = 2*pi
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..strokeCap = StrokeCap.round
+          ..color = color,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RingPainter oldDelegate) =>
+      oldDelegate.fraction != fraction || oldDelegate.color != color;
+}
+
+// --- Category Tabs ---
+
+class _CategoryTabs extends StatelessWidget {
+  final int selectedIndex;
+  final int totalCount;
+  final ValueChanged<int> onChanged;
+
+  const _CategoryTabs({
+    required this.selectedIndex,
+    required this.totalCount,
+    required this.onChanged,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final labels = ['All Projects ($totalCount)', 'Healthy', 'Needs Attention', 'Critical'];
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: cs.outline.withValues(alpha: 0.15))),
+      ),
+      child: Row(
+        children: labels.asMap().entries.map((entry) {
+          final isActive = entry.key == selectedIndex;
+          return GestureDetector(
+            onTap: () => onChanged(entry.key),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: isActive ? AppColors.accent : Colors.transparent,
+                    width: 2,
+                  ),
+                ),
+              ),
+              child: Text(
+                entry.value,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: isActive ? cs.onSurface : cs.onSurfaceVariant,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// --- Health Card (redesigned) ---
+
+class _HealthCard extends StatelessWidget {
+  final _ProjectHealthData data;
+
+  const _HealthCard({required this.data});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final details = data.health.details;
     final staleness = data.health.staleness;
+    final score = details.totalScore;
+    final category = details.category;
 
-    final stalenessColor = _getStalenessColor(staleness);
+    final categoryColor = _categoryColor(category);
+    final categoryLabel = _categoryLabel(category);
+    final stalenessLabel = staleness.label;
+    final stalenessColor = _stalenessColor(staleness);
+
+    final lastCommitText = details.lastCommitDate != null
+        ? 'Last commit: ${_formatTimeAgo(details.lastCommitDate!)}'
+        : '';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: cs.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outline.withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
+          // Header: name + badge + score
           Row(
             children: [
-              // Health score circle
-              _HealthScoreIndicator(
-                score: details.totalScore,
-                size: 48,
+              Text(
+                data.project.name,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: cs.onSurface,
+                ),
               ),
-              const SizedBox(width: 16),
-              // Project info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            data.project.name,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                        ),
-                        if (staleness != StalenessLevel.fresh)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: stalenessColor.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              staleness.label,
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: stalenessColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      data.project.path,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+              const SizedBox(width: 8),
+              // Health badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: categoryColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: Text(
+                  categoryLabel,
+                  style: AppTypography.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: categoryColor,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              // Score
+              Text(
+                '$score/100',
+                style: AppTypography.mono(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: categoryColor,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 2),
+          Text(
+            _shortenPath(data.project.path),
+            style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
 
-          // Score breakdown
+          // Score breakdown bars
+          _ScoreBar(label: 'Git Activity', score: details.gitScore, maxScore: 40),
+          const SizedBox(height: 8),
+          _ScoreBar(label: 'Dependencies', score: details.depsScore, maxScore: 30),
+          const SizedBox(height: 8),
+          _ScoreBar(label: 'Tests', score: details.testsScore, maxScore: 30),
+
+          const SizedBox(height: 14),
+
+          // Footer: last commit + staleness badge
           Row(
             children: [
-              _ScoreCategory(
-                label: 'Git',
-                score: details.gitScore,
-                maxScore: 40,
-                icon: Icons.commit,
+              if (lastCommitText.isNotEmpty)
+                Text(
+                  lastCommitText,
+                  style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: stalenessColor.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  stalenessLabel,
+                  style: AppTypography.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: stalenessColor,
+                  ),
+                ),
               ),
-              const SizedBox(width: 16),
-              _ScoreCategory(
-                label: 'Dependencies',
-                score: details.depsScore,
-                maxScore: 30,
-                icon: Icons.inventory_2_rounded,
-              ),
-              const SizedBox(width: 16),
-              _ScoreCategory(
-                label: 'Tests',
-                score: details.testsScore,
-                maxScore: 30,
-                icon: Icons.science_rounded,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Details
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (details.hasRecentCommits)
-                _DetailChip(label: 'Recent commits', positive: true),
-              if (!details.hasRecentCommits)
-                _DetailChip(label: 'No recent commits', positive: false),
-              if (details.noUncommittedChanges)
-                _DetailChip(label: 'Clean working tree', positive: true),
-              if (!details.noUncommittedChanges)
-                _DetailChip(label: 'Uncommitted changes', positive: false),
-              if (details.hasDependencyFile && details.dependencyFileType != null)
-                _DetailChip(label: details.dependencyFileType!, positive: true),
-              if (details.hasTestFolder)
-                _DetailChip(label: 'Has tests', positive: true),
-              if (!details.hasTestFolder)
-                _DetailChip(label: 'No tests', positive: false),
             ],
           ),
         ],
@@ -440,213 +570,150 @@ class _ProjectHealthCard extends StatelessWidget {
     );
   }
 
-  Color _getScoreColor(int score) {
-    if (score >= 80) return Colors.green;
-    if (score >= 50) return Colors.orange;
-    return Colors.red;
+  String _shortenPath(String path) {
+    final parts = path.split('/');
+    if (parts.length > 2) {
+      return '~/${parts.sublist(3).join('/')}';
+    }
+    return path;
   }
 
-  Color _getStalenessColor(StalenessLevel staleness) {
-    switch (staleness) {
-      case StalenessLevel.fresh:
-        return Colors.green;
-      case StalenessLevel.warning:
-        return Colors.orange;
-      case StalenessLevel.stale:
-        return Colors.red;
-      case StalenessLevel.abandoned:
-        return Colors.grey;
+  String _formatTimeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 30) return '${diff.inDays}d ago';
+    return '${(diff.inDays / 30).floor()}mo ago';
+  }
+
+  Color _categoryColor(HealthCategory cat) {
+    switch (cat) {
+      case HealthCategory.healthy: return AppColors.success;
+      case HealthCategory.needsAttention: return AppColors.warning;
+      case HealthCategory.critical: return AppColors.error;
+    }
+  }
+
+  String _categoryLabel(HealthCategory cat) {
+    switch (cat) {
+      case HealthCategory.healthy: return 'Healthy';
+      case HealthCategory.needsAttention: return 'Needs Attention';
+      case HealthCategory.critical: return 'Critical';
+    }
+  }
+
+  Color _stalenessColor(StalenessLevel s) {
+    switch (s) {
+      case StalenessLevel.fresh: return AppColors.success;
+      case StalenessLevel.warning: return AppColors.warning;
+      case StalenessLevel.stale: return AppColors.error;
+      case StalenessLevel.abandoned: return const Color(0xFF6B7280);
     }
   }
 }
 
-class _HealthScoreIndicator extends StatelessWidget {
-  final int score;
-  final double size;
+// --- Score Bar ---
 
-  const _HealthScoreIndicator({
-    required this.score,
-    this.size = 48,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _getScoreColor(score);
-
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CircularProgressIndicator(
-            value: score / 100,
-            backgroundColor: color.withValues(alpha: 0.2),
-            valueColor: AlwaysStoppedAnimation(color),
-            strokeWidth: 4,
-          ),
-          Text(
-            score.toString(),
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getScoreColor(int score) {
-    if (score >= 80) return Colors.green;
-    if (score >= 50) return Colors.orange;
-    return Colors.red;
-  }
-}
-
-class _ScoreCategory extends StatelessWidget {
+class _ScoreBar extends StatelessWidget {
   final String label;
   final int score;
   final int maxScore;
-  final IconData icon;
 
-  const _ScoreCategory({
-    required this.label,
-    required this.score,
-    required this.maxScore,
-    required this.icon,
-  });
+  const _ScoreBar({required this.label, required this.score, required this.maxScore});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final percentage = score / maxScore;
-    final color = percentage >= 0.7
-        ? Colors.green
-        : percentage >= 0.4
-            ? Colors.orange
-            : Colors.red;
+    final fraction = score / maxScore;
+    final color = fraction >= 0.7
+        ? AppColors.success
+        : fraction >= 0.4
+            ? AppColors.warning
+            : AppColors.error;
 
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 14, color: cs.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-              ),
-              const Spacer(),
-              Text(
-                '$score/$maxScore',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          LinearProgressIndicator(
-            value: percentage,
-            backgroundColor: color.withValues(alpha: 0.2),
-            valueColor: AlwaysStoppedAnimation(color),
-            minHeight: 4,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailChip extends StatelessWidget {
-  final String label;
-  final bool positive;
-
-  const _DetailChip({
-    required this.label,
-    required this.positive,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = positive ? Colors.green : Colors.red;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            positive ? Icons.check_circle : Icons.warning,
-            size: 12,
-            color: color,
-          ),
-          const SizedBox(width: 4),
-          Text(
+    return Row(
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(
             label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: color,
-                ),
+            style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant),
           ),
-        ],
-      ),
+        ),
+        Expanded(
+          child: Container(
+            height: 6,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: fraction,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [color, color.withValues(alpha: 0.7)],
+                  ),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 40,
+          child: Text(
+            '$score/$maxScore',
+            style: AppTypography.mono(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
     );
   }
 }
+
+// --- Health History Teaser ---
 
 class _HealthHistoryTeaser extends StatelessWidget {
   final bool isPro;
   final VoidCallback onTap;
 
-  const _HealthHistoryTeaser({
-    required this.isPro,
-    required this.onTap,
-  });
+  const _HealthHistoryTeaser({required this.isPro, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16, top: 8),
+      margin: const EdgeInsets.only(top: 8, bottom: 16),
       decoration: BoxDecoration(
         color: cs.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(
-          color: isPro
-              ? cs.outline.withValues(alpha: 0.2)
-              : const Color(0xFFFFD700).withValues(alpha: 0.3),
+          color: isPro ? cs.outline.withValues(alpha: 0.15) : AppColors.warning.withValues(alpha: 0.3),
         ),
       ),
       child: InkWell(
         onTap: isPro ? null : onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFD700).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
                 ),
-                child: const Icon(
-                  Icons.trending_up_rounded,
-                  color: Color(0xFFFFD700),
-                  size: 24,
-                ),
+                child: const Icon(Icons.trending_up_rounded, color: AppColors.warning, size: 22),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -657,13 +724,20 @@ class _HealthHistoryTeaser extends StatelessWidget {
                       children: [
                         Text(
                           'Health History & Trends',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                         ),
                         if (!isPro) ...[
                           const SizedBox(width: 8),
-                          UkBadge('PRO', variant: UkBadgeVariant.neutral),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Text('PRO', style: AppTypography.inter(
+                              fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.accent,
+                            )),
+                          ),
                         ],
                       ],
                     ),
@@ -672,9 +746,7 @@ class _HealthHistoryTeaser extends StatelessWidget {
                       isPro
                           ? 'Track how your project health changes over time'
                           : 'Upgrade to Pro to track health trends over time',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                     ),
                   ],
                 ),

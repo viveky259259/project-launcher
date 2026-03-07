@@ -4,7 +4,7 @@ import 'package:purchases_flutter/purchases_flutter.dart';
 
 /// RevenueCat configuration constants
 class RevenueCatConfig {
-  static const String apiKey = 'test_HJkJTgplbAzOatkthKPMCNjXHDk';
+  static const String apiKey = 'sk_dhYqIymLieyeOBGeBWvpmigjicqXn';
   static const String entitlementId = 'Project Launcher Pro';
 
   /// Product identifiers configured in RevenueCat
