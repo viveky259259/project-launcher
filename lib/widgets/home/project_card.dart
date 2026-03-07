@@ -13,6 +13,7 @@ class ProjectCard extends StatefulWidget {
   final VoidCallback onTogglePin;
   final VoidCallback onEditTags;
   final VoidCallback onEditNotes;
+  final VoidCallback? onSettings;
 
   const ProjectCard({
     super.key,
@@ -24,6 +25,7 @@ class ProjectCard extends StatefulWidget {
     required this.onTogglePin,
     required this.onEditTags,
     required this.onEditNotes,
+    this.onSettings,
   });
 
   @override
@@ -199,6 +201,12 @@ class _ProjectCardState extends State<ProjectCard> {
                     color: project.isPinned ? AppColors.accent : null,
                     onPressed: widget.onTogglePin,
                   ),
+                  if (widget.onSettings != null)
+                    _ActionIcon(
+                      icon: Icons.settings_rounded,
+                      tooltip: 'Project Settings',
+                      onPressed: widget.onSettings!,
+                    ),
                 ],
               ),
             ),

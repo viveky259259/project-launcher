@@ -148,7 +148,7 @@ class HealthService {
       final depFile = File('$projectPath/${check['dep']}');
       if (await depFile.exists()) {
         hasDependencyFile = true;
-        dependencyFileType = check['type'] as String;
+        dependencyFileType = check['dep'] as String;
         depsScore += 20;
 
         if (check['lock'] != null) {

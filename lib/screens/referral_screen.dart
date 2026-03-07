@@ -5,6 +5,8 @@ import '../services/referral_service.dart';
 import '../services/premium_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sidebar.dart';
+import 'health_screen.dart';
+import 'year_review_screen.dart';
 
 class ReferralScreen extends StatefulWidget {
   const ReferralScreen({super.key});
@@ -111,8 +113,16 @@ class _ReferralScreenState extends State<ReferralScreen> {
           AppSidebar(
             activeRoute: 'referrals',
             onNavigate: (route) {
-              if (route != 'referrals') {
-                Navigator.of(context).pop();
+              if (route == 'referrals') return;
+              Navigator.of(context).pop();
+              if (route == 'health') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HealthScreen()),
+                );
+              } else if (route == 'year_review') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const YearReviewScreen()),
+                );
               }
             },
           ),

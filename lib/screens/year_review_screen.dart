@@ -8,6 +8,8 @@ import 'package:share_plus/share_plus.dart';
 import '../services/stats_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sidebar.dart';
+import 'health_screen.dart';
+import 'referral_screen.dart';
 
 class YearReviewScreen extends StatefulWidget {
   const YearReviewScreen({super.key});
@@ -97,8 +99,16 @@ class _YearReviewScreenState extends State<YearReviewScreen> {
           AppSidebar(
             activeRoute: 'year_review',
             onNavigate: (route) {
-              if (route != 'year_review') {
-                Navigator.of(context).pop();
+              if (route == 'year_review') return;
+              Navigator.of(context).pop();
+              if (route == 'health') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HealthScreen()),
+                );
+              } else if (route == 'referrals') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ReferralScreen()),
+                );
               }
             },
           ),

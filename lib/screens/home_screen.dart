@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/project.dart';
@@ -10,17 +11,19 @@ import '../services/launcher_service.dart';
 import '../services/project_scanner.dart';
 import '../services/health_service.dart';
 import '../services/premium_service.dart';
+import '../main.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home/project_card.dart';
 import '../widgets/home/filter_bar.dart';
 import '../widgets/home/side_panel.dart';
 import '../widgets/home/status_bar.dart';
 import '../widgets/theme_switcher.dart';
-import '../kit/kit.dart';
 import 'year_review_screen.dart';
 import 'health_screen.dart';
 import 'referral_screen.dart';
 import 'pro_screen.dart';
+import 'project_settings_screen.dart';
+import 'onboarding_screen.dart';
 
 enum SortMode { lastOpened, name }
 enum ViewMode { list, folder }
@@ -47,6 +50,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, CachedHealthScore> _healthScores = {};
   bool _showThemeSwitcher = false;
   DateTime? _lastScanTime;
+  final _searchFocusNode = FocusNode();
+  bool _isPro = false;
+
+  ProjectLauncherAppState? get _appState => ProjectLauncherApp.of(context);
 
   @override
   void initState() {
@@ -54,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadPreferences();
     _loadProjects();
     _loadHealthScores();
+    _loadProStatus();
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _loadProjects();
     });
@@ -63,7 +71,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadProStatus() async {
+    final pro = await PremiumService.isPro();
+    if (mounted) setState(() => _isPro = pro);
   }
 
   // --- Data loading ---
@@ -215,10 +229,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _editTags(Project project) async {
+    final cs = Theme.of(context).colorScheme;
     final controller = TextEditingController(text: project.tags.join(', '));
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
         title: Text('Tags for ${project.name}'),
         content: SizedBox(
           width: 400,
@@ -226,15 +242,21 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              UkTextField(
+              TextField(
                 controller: controller,
-                label: 'Tags (comma separated)',
-                hint: 'work, flutter, personal',
-                prefixIcon: Icons.label_rounded,
+                decoration: InputDecoration(
+                  labelText: 'Tags (comma separated)',
+                  hintText: 'work, flutter, personal',
+                  prefixIcon: const Icon(Icons.label_rounded, size: 18),
+                  filled: true,
+                  fillColor: cs.surface,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                ),
+                style: AppTypography.mono(fontSize: 13, color: cs.onSurface),
               ),
               if (_allTags.isNotEmpty) ...[
                 const SizedBox(height: 16),
-                Text('Existing tags:', style: Theme.of(context).textTheme.labelMedium),
+                Text('Existing tags:', style: Theme.of(ctx).textTheme.labelMedium),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
@@ -248,7 +270,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller.text = '$current, $tag';
                       }
                     },
-                    child: UkBadge(tag, variant: UkBadgeVariant.neutral),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: cs.onSurface.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                      child: Text(tag, style: Theme.of(ctx).textTheme.labelSmall),
+                    ),
                   )).toList(),
                 ),
               ],
@@ -256,17 +285,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
-          UkButton(
-            label: 'Cancel',
-            variant: UkButtonVariant.text,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          UkButton(
-            label: 'Save',
-            variant: UkButtonVariant.primary,
-            icon: Icons.check,
-            onPressed: () => Navigator.of(context).pop(controller.text),
-          ),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(controller.text), child: const Text('Save')),
         ],
       ),
     );
@@ -279,41 +299,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _editNotes(Project project) async {
+    final cs = Theme.of(context).colorScheme;
     final controller = TextEditingController(text: project.notes ?? '');
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
         title: Text('Notes for ${project.name}'),
         content: SizedBox(
           width: 500,
           height: 200,
-          child: UkTextArea(
+          child: TextField(
             controller: controller,
-            label: 'Notes',
-            hint: 'Add notes, TODOs, or reminders...',
-            minLines: 5,
             maxLines: 10,
+            minLines: 5,
+            decoration: InputDecoration(
+              hintText: 'Add notes, TODOs, or reminders...',
+              filled: true,
+              fillColor: cs.surface,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+            ),
+            style: AppTypography.mono(fontSize: 13, color: cs.onSurface),
           ),
         ),
         actions: [
-          UkButton(
-            label: 'Cancel',
-            variant: UkButtonVariant.text,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
           if (project.notes != null && project.notes!.isNotEmpty)
-            UkButton(
-              label: 'Clear',
-              variant: UkButtonVariant.outline,
-              icon: Icons.delete_outline,
-              onPressed: () => Navigator.of(context).pop(''),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(''),
+              child: Text('Clear', style: TextStyle(color: AppColors.error)),
             ),
-          UkButton(
-            label: 'Save',
-            variant: UkButtonVariant.primary,
-            icon: Icons.check,
-            onPressed: () => Navigator.of(context).pop(controller.text),
-          ),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(controller.text), child: const Text('Save')),
         ],
       ),
     );
@@ -325,34 +341,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addProjectManually() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Project'),
-        content: SizedBox(
-          width: 400,
-          child: UkTextField(
-            controller: controller,
-            label: 'Project Path',
-            hint: '/path/to/your/project',
-            prefixIcon: Icons.folder_rounded,
-          ),
-        ),
-        actions: [
-          UkButton(
-            label: 'Cancel',
-            variant: UkButtonVariant.text,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          UkButton(
-            label: 'Add',
-            variant: UkButtonVariant.primary,
-            icon: Icons.add,
-            onPressed: () => Navigator.of(context).pop(controller.text),
-          ),
-        ],
-      ),
+    // Use file picker to browse for a directory
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select a project folder',
     );
 
     if (result != null && result.isNotEmpty) {
@@ -366,6 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         await ProjectStorage.addProject(project);
         _loadProjects();
+        _loadHealthScores();
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -390,9 +382,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showUpgradePrompt(String featureName) {
+    final cs = Theme.of(context).colorScheme;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
         title: const Row(
           children: [
             Icon(Icons.workspace_premium, color: Color(0xFFFFD700)),
@@ -404,19 +398,13 @@ class _HomeScreenState extends State<HomeScreen> {
           '$featureName is a Pro feature. Upgrade to unlock it and all other premium features.',
         ),
         actions: [
-          UkButton(
-            label: 'Maybe Later',
-            variant: UkButtonVariant.text,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          UkButton(
-            label: 'View Pro',
-            variant: UkButtonVariant.primary,
-            icon: Icons.workspace_premium,
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Maybe Later')),
+          TextButton(
             onPressed: () {
-              Navigator.of(context).pop();
+              Navigator.of(ctx).pop();
               _showProScreen();
             },
+            child: const Text('View Pro'),
           ),
         ],
       ),
@@ -428,7 +416,8 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => ProScreen(
           onStatusChanged: () {
-            // Refresh premium status in parent
+            _loadProStatus();
+            _appState?.refreshPremiumStatus();
           },
         ),
       ),
@@ -444,6 +433,25 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showReferrals() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const ReferralScreen()),
+    );
+  }
+
+  void _openProjectSettings(Project project) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProjectSettingsScreen(
+          project: project,
+          healthScore: _healthScores[project.path],
+          onSaved: () {
+            _loadProjects();
+            _loadHealthScores();
+          },
+          onRemoved: () {
+            _loadProjects();
+            _loadHealthScores();
+          },
+        ),
+      ),
     );
   }
 
@@ -485,8 +493,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final cs = Theme.of(context).colorScheme;
     final pinnedProjects = _sortedProjects.where((p) => p.isPinned).toList();
     final recentProjects = _sortedProjects.where((p) => !p.isPinned).toList();
+    final appState = _appState;
 
-    return Scaffold(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () {
+          _searchFocusNode.requestFocus();
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
       body: Stack(
         children: [
           Column(
@@ -523,7 +540,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: _isLoading
                           ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
                           : _projects.isEmpty
-                              ? _buildEmptyState()
+                              ? OnboardingScreen(
+                                  onStartScan: _scanForProjects,
+                                  onAddManually: _addProjectManually,
+                                )
                               : _sortedProjects.isEmpty
                                   ? _buildNoResults()
                                   : _buildProjectList(pinnedProjects, recentProjects),
@@ -535,7 +555,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         totalProjects: _projects.length,
                         healthyCount: _healthyCount,
                         needsAttentionCount: _needsAttentionCount,
-                        isPro: false,
+                        isPro: _isPro,
                         onYearReviewTap: _showYearInReview,
                         onHealthTap: _showHealthDashboard,
                       ),
@@ -560,11 +580,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: GestureDetector(
                     onTap: () {}, // Absorb taps on the panel itself
                     child: ThemeSwitcherPanel(
-                      currentTheme: AppTheme.dark, // Will be wired to app state
-                      unlockedThemes: [],
-                      isPro: false,
+                      currentTheme: appState?.currentTheme ?? AppTheme.dark,
+                      unlockedThemes: appState?.unlockedThemes ?? [],
+                      isPro: _isPro,
                       onThemeChanged: (theme) {
-                        // Will be wired to app state
+                        appState?.setTheme(theme);
                         setState(() => _showThemeSwitcher = false);
                       },
                       onClose: () => setState(() => _showThemeSwitcher = false),
@@ -582,6 +602,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
         ],
+      ),
+    ),
       ),
     );
   }
@@ -636,6 +658,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
+                      focusNode: _searchFocusNode,
                       onChanged: (value) => setState(() => _searchQuery = value),
                       style: AppTypography.mono(fontSize: 13, color: cs.onSurface),
                       decoration: InputDecoration(
@@ -752,66 +775,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTogglePin: () => _togglePin(project),
       onEditTags: () => _editTags(project),
       onEditNotes: () => _editNotes(project),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.terminal_rounded, size: 64, color: AppColors.accent.withValues(alpha: 0.5)),
-          const SizedBox(height: 24),
-          Text(
-            'Welcome to your command center',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              color: cs.onSurface,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Project Launcher organizes your local repositories and gives you\ninstant access to your code.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: cs.onSurfaceVariant,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton.icon(
-                onPressed: _scanForProjects,
-                icon: const Icon(Icons.search),
-                label: const Text('Auto-Scan Machine'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              OutlinedButton.icon(
-                onPressed: _addProjectManually,
-                icon: const Icon(Icons.add),
-                label: const Text('Add Manually'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFFF69B4),
-                  side: const BorderSide(color: Color(0xFFFF69B4)),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      onSettings: () => _openProjectSettings(project),
     );
   }
 
