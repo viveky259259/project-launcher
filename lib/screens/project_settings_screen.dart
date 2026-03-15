@@ -79,6 +79,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   DeploymentConfig? _deploymentConfig;
   bool _releaseLoaded = false;
   bool _bumpingVersion = false;
+  ReleaseProcess? _releaseProcess;
   bool _creatingTag = false;
   bool _shippingRelease = false;
 
@@ -159,11 +160,13 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     final info = await VersionDetector.detect(widget.project.path);
     final score = await ReleaseService.getReadinessScore(widget.project.path);
     final deploy = ReleaseService.detectDeploymentConfig(widget.project.path);
+    final process = await ReleaseService.detectReleaseProcess(widget.project.path);
     if (mounted) {
       setState(() {
         _releaseInfo = info;
         _readinessScore = score;
         _deploymentConfig = deploy;
+        _releaseProcess = process;
         _releaseLoaded = true;
       });
     }
@@ -1858,27 +1861,82 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
           const SizedBox(height: 20),
         ],
 
-        // Action buttons
-        if (info.version != null) ...[
-          Text('Actions', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
-          const SizedBox(height: 12),
+        // Detected release process
+        if (_releaseProcess != null) ...[
+          Row(
+            children: [
+              Text('Release Process', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: Text(
+                  _releaseProcess!.method,
+                  style: AppTypography.mono(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.accent),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
 
-          // One-click release flow
+          // Show detected steps
+          ...(_releaseProcess!.steps.asMap().entries.map((entry) {
+            final i = entry.key;
+            final step = entry.value;
+            final typeIcon = switch (step.type) {
+              ReleaseStepType.script => Icons.description_rounded,
+              ReleaseStepType.make => Icons.build_rounded,
+              ReleaseStepType.npm => Icons.javascript_rounded,
+              ReleaseStepType.fastlane => Icons.fast_forward_rounded,
+              ReleaseStepType.githubAction => Icons.play_circle_outline_rounded,
+              ReleaseStepType.tool => Icons.settings_rounded,
+              ReleaseStepType.builtin => Icons.auto_fix_high_rounded,
+            };
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Container(
+                    width: 20, height: 20,
+                    decoration: BoxDecoration(color: cs.surfaceContainerHighest, shape: BoxShape.circle),
+                    child: Center(child: Text('${i + 1}', style: AppTypography.mono(fontSize: 10, fontWeight: FontWeight.w700, color: cs.onSurfaceVariant))),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(typeIcon, size: 14, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(step.name, style: AppTypography.inter(fontSize: 12, fontWeight: FontWeight.w500, color: cs.onSurface)),
+                        Text(step.description, style: AppTypography.inter(fontSize: 10, color: cs.onSurfaceVariant), overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                  if (step.isAutomated)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
+                      child: Text('auto', style: AppTypography.mono(fontSize: 9, color: AppColors.success)),
+                    ),
+                ],
+              ),
+            );
+          })),
+          const SizedBox(height: 16),
+
+          // Ship It button — runs the detected process
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _shippingRelease ? null : () => _oneClickRelease('patch'),
+              onPressed: _shippingRelease ? null : _shipWithDetectedProcess,
               icon: _shippingRelease
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: cs.onPrimary,
-                      ),
-                    )
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
                   : const Icon(Icons.rocket_launch_rounded, size: 18),
-              label: Text(_shippingRelease ? 'Shipping...' : 'Ship It \u2014 Bump, Tag & Release'),
+              label: Text(_shippingRelease ? 'Shipping...' : 'Ship It'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.accent,
                 foregroundColor: cs.surface,
@@ -1889,7 +1947,12 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
             ),
           ),
           const SizedBox(height: 12),
+        ],
 
+        // Manual actions
+        if (info.version != null) ...[
+          Text('Manual Actions', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1979,6 +2042,103 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       ));
       _loadReleaseData();
     }
+  }
+
+  Future<void> _shipWithDetectedProcess() async {
+    final process = _releaseProcess;
+    if (process == null || process.steps.isEmpty) return;
+
+    // Show confirmation with detected steps
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          backgroundColor: cs.surface,
+          title: Row(
+            children: [
+              Icon(Icons.rocket_launch_rounded, color: AppColors.accent, size: 22),
+              const SizedBox(width: 10),
+              const Text('Ship It'),
+            ],
+          ),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Detected release process: ${process.method}',
+                  style: AppTypography.inter(fontSize: 13, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 16),
+                Text('Steps to execute:', style: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                ...process.steps.asMap().entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Text('${e.key + 1}. ', style: AppTypography.mono(fontSize: 12, color: cs.onSurfaceVariant)),
+                      Expanded(child: Text(e.value.name, style: AppTypography.inter(fontSize: 12, color: cs.onSurface))),
+                      if (e.value.isAutomated)
+                        Text('(auto)', style: AppTypography.mono(fontSize: 10, color: AppColors.success)),
+                    ],
+                  ),
+                )),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.accent, foregroundColor: Colors.white),
+              child: const Text('Ship It'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _shippingRelease = true);
+    AppLogger.info('Release', 'Starting release with ${process.method} process (${process.steps.length} steps)');
+
+    String? currentVersion;
+    final results = <String>[];
+    var failed = false;
+
+    for (final step in process.steps) {
+      if (step.isAutomated) {
+        results.add('${step.name}: skipped (automated by CI)');
+        continue;
+      }
+
+      final result = await ReleaseService.executeStep(widget.project.path, step, version: currentVersion);
+      results.add('${step.name}: ${result.success ? "OK" : "FAILED"} — ${result.output.split('\n').first}');
+
+      if (result.version != null) currentVersion = result.version;
+
+      if (!result.success) {
+        failed = true;
+        break;
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() => _shippingRelease = false);
+
+    // Show results in the output panel
+    setState(() {
+      _outputPanelOpen = true;
+      _viewingInsightSkill = null;
+      _streamedOutput = '# Release: ${process.method}\n\n${results.join('\n')}\n\n${failed ? "FAILED — stopped at first error" : "All steps completed successfully"}';
+    });
+
+    _loadReleaseData();
   }
 
   Future<void> _oneClickRelease(String level) async {

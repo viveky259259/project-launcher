@@ -148,3 +148,39 @@ class DeploymentConfig {
     this.signingDetail,
   });
 }
+
+/// Detected release process for a project.
+class ReleaseProcess {
+  final String method; // "scripts", "make", "npm", "fastlane", "semantic-release", "generic"
+  final List<ReleaseStep> steps;
+
+  ReleaseProcess({required this.method, required this.steps});
+}
+
+enum ReleaseStepType { script, make, npm, fastlane, githubAction, tool, builtin }
+
+/// A single step in a release process.
+class ReleaseStep {
+  final String name;
+  final String command;
+  final String description;
+  final ReleaseStepType type;
+  final bool isAutomated; // true if triggered by tag push / CI
+
+  ReleaseStep({
+    required this.name,
+    required this.command,
+    required this.description,
+    required this.type,
+    this.isAutomated = false,
+  });
+}
+
+/// Result of executing a release step.
+class StepResult {
+  final bool success;
+  final String output;
+  final String? version; // set by bump step
+
+  StepResult({required this.success, required this.output, this.version});
+}

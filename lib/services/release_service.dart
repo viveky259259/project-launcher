@@ -337,6 +337,245 @@ class ReleaseService {
     return [];
   }
 
+  // --- Release Process Detection ---
+
+  /// Detect the project's existing release process by scanning for scripts,
+  /// Makefile targets, npm scripts, Fastlane, and CI workflows.
+  /// Returns an ordered list of steps the project uses to release.
+  static Future<ReleaseProcess> detectReleaseProcess(String projectPath) async {
+    AppLogger.info(_tag, 'Detecting release process for ${projectPath.split('/').last}');
+    final steps = <ReleaseStep>[];
+    String? method;
+
+    // 1. Check for dedicated release scripts
+    final scriptsDir = Directory('$projectPath/scripts');
+    if (scriptsDir.existsSync()) {
+      final releaseScripts = scriptsDir.listSync()
+          .whereType<File>()
+          .where((f) {
+            final name = f.path.split('/').last.toLowerCase();
+            return name.contains('release') || name.contains('deploy') || name.contains('publish') || name.contains('ship');
+          })
+          .toList();
+
+      if (releaseScripts.isNotEmpty) {
+        method = 'scripts';
+        for (final script in releaseScripts) {
+          final name = script.path.split('/').last;
+          final description = await _parseScriptDescription(script.path);
+          steps.add(ReleaseStep(
+            name: name,
+            command: 'scripts/$name',
+            description: description ?? 'Run $name',
+            type: ReleaseStepType.script,
+          ));
+        }
+      }
+    }
+
+    // 2. Check Makefile for release/deploy/publish targets
+    final makefile = File('$projectPath/Makefile');
+    if (makefile.existsSync()) {
+      final content = makefile.readAsStringSync();
+      final targets = RegExp(r'^([a-z][\w-]*):',  multiLine: true).allMatches(content);
+      final releaseTargets = targets
+          .map((m) => m.group(1)!)
+          .where((t) => {'release', 'deploy', 'publish', 'ship', 'dist', 'install', 'build-release'}.contains(t))
+          .toList();
+
+      if (releaseTargets.isNotEmpty && method == null) method = 'make';
+      for (final target in releaseTargets) {
+        steps.add(ReleaseStep(
+          name: 'make $target',
+          command: 'make $target',
+          description: 'Makefile target: $target',
+          type: ReleaseStepType.make,
+        ));
+      }
+    }
+
+    // 3. Check package.json scripts
+    final pkgJson = File('$projectPath/package.json');
+    if (pkgJson.existsSync()) {
+      try {
+        final content = pkgJson.readAsStringSync();
+        for (final script in ['release', 'deploy', 'publish', 'ship', 'prepublishOnly']) {
+          if (RegExp('"$script"\\s*:').hasMatch(content)) {
+            if (method == null) method = 'npm';
+            final cmdMatch = RegExp('"$script"\\s*:\\s*"([^"]+)"').firstMatch(content);
+            steps.add(ReleaseStep(
+              name: 'npm run $script',
+              command: 'npm run $script',
+              description: cmdMatch != null ? cmdMatch.group(1)! : 'npm script: $script',
+              type: ReleaseStepType.npm,
+            ));
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. Check Fastlane
+    final fastlaneDir = Directory('$projectPath/fastlane');
+    if (fastlaneDir.existsSync()) {
+      if (method == null) method = 'fastlane';
+      final fastfile = File('$projectPath/fastlane/Fastfile');
+      if (fastfile.existsSync()) {
+        final content = fastfile.readAsStringSync();
+        final lanes = RegExp(r'lane\s*:(\w+)').allMatches(content);
+        for (final lane in lanes) {
+          final name = lane.group(1)!;
+          if ({'release', 'deploy', 'beta', 'distribute', 'publish'}.contains(name)) {
+            steps.add(ReleaseStep(
+              name: 'fastlane $name',
+              command: 'fastlane $name',
+              description: 'Fastlane lane: $name',
+              type: ReleaseStepType.fastlane,
+            ));
+          }
+        }
+      }
+    }
+
+    // 5. Check GitHub Actions release workflow
+    final ghWorkflows = Directory('$projectPath/.github/workflows');
+    if (ghWorkflows.existsSync()) {
+      for (final file in ghWorkflows.listSync().whereType<File>()) {
+        final name = file.path.split('/').last;
+        if (name.contains('release') || name.contains('deploy') || name.contains('publish')) {
+          try {
+            final content = file.readAsStringSync();
+            // Detect trigger
+            String trigger = 'manual';
+            if (content.contains("push:") && content.contains("tags:")) trigger = 'on tag push';
+            if (content.contains("workflow_dispatch:")) trigger = 'manual dispatch';
+            steps.add(ReleaseStep(
+              name: 'GH Action: $name',
+              command: 'gh workflow run $name',
+              description: 'Triggered $trigger',
+              type: ReleaseStepType.githubAction,
+              isAutomated: trigger == 'on tag push',
+            ));
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 6. Check for semantic-release / release-please / changesets
+    if (File('$projectPath/.releaserc').existsSync() || File('$projectPath/.releaserc.json').existsSync()) {
+      method ??= 'semantic-release';
+      steps.add(ReleaseStep(name: 'semantic-release', command: 'npx semantic-release', description: 'Automated versioning from commits', type: ReleaseStepType.tool));
+    }
+    if (File('$projectPath/.release-please-manifest.json').existsSync()) {
+      method ??= 'release-please';
+      steps.add(ReleaseStep(name: 'release-please', command: 'release-please', description: 'Google release-please automation', type: ReleaseStepType.tool, isAutomated: true));
+    }
+    if (Directory('$projectPath/.changeset').existsSync()) {
+      method ??= 'changesets';
+      steps.add(ReleaseStep(name: 'changesets', command: 'npx changeset publish', description: 'Changeset-based publishing', type: ReleaseStepType.tool));
+    }
+
+    // If nothing detected, fall back to generic flow
+    if (steps.isEmpty) {
+      method = 'generic';
+      steps.addAll([
+        ReleaseStep(name: 'Bump version', command: '_builtin:bump', description: 'Increment version in project file', type: ReleaseStepType.builtin),
+        ReleaseStep(name: 'Commit', command: '_builtin:commit', description: 'Commit version bump', type: ReleaseStepType.builtin),
+        ReleaseStep(name: 'Tag', command: '_builtin:tag', description: 'Create git tag', type: ReleaseStepType.builtin),
+        ReleaseStep(name: 'Push', command: '_builtin:push', description: 'Push to remote with tags', type: ReleaseStepType.builtin),
+        ReleaseStep(name: 'GitHub Release', command: '_builtin:gh_release', description: 'Create GitHub release', type: ReleaseStepType.builtin),
+      ]);
+    }
+
+    AppLogger.info(_tag, 'Release process: $method (${steps.length} steps)');
+    return ReleaseProcess(method: method ?? 'unknown', steps: steps);
+  }
+
+  /// Execute a release step.
+  static Future<StepResult> executeStep(String projectPath, ReleaseStep step, {String? version}) async {
+    AppLogger.info(_tag, 'Executing: ${step.name}');
+
+    if (step.command.startsWith('_builtin:')) {
+      return _executeBuiltinStep(projectPath, step.command, version);
+    }
+
+    try {
+      // Determine shell command
+      String executable;
+      List<String> args;
+
+      if (step.type == ReleaseStepType.script) {
+        final scriptPath = '$projectPath/${step.command}';
+        executable = '/bin/bash';
+        args = [scriptPath];
+      } else if (step.type == ReleaseStepType.make) {
+        executable = 'make';
+        args = [step.command.replaceFirst('make ', '')];
+      } else if (step.type == ReleaseStepType.npm) {
+        executable = 'npm';
+        args = ['run', step.command.replaceFirst('npm run ', '')];
+      } else if (step.type == ReleaseStepType.fastlane) {
+        executable = 'fastlane';
+        args = [step.command.replaceFirst('fastlane ', '')];
+      } else if (step.type == ReleaseStepType.githubAction) {
+        executable = 'gh';
+        args = step.command.replaceFirst('gh ', '').split(' ');
+      } else {
+        executable = '/bin/bash';
+        args = ['-c', step.command];
+      }
+
+      final result = await Process.run(executable, args, workingDirectory: projectPath);
+
+      if (result.exitCode == 0) {
+        AppLogger.info(_tag, '${step.name}: OK');
+        return StepResult(success: true, output: result.stdout.toString());
+      } else {
+        AppLogger.error(_tag, '${step.name}: FAILED (exit ${result.exitCode})\n${result.stderr}');
+        return StepResult(success: false, output: result.stderr.toString().isNotEmpty ? result.stderr.toString() : result.stdout.toString());
+      }
+    } catch (e) {
+      AppLogger.error(_tag, '${step.name}: exception $e');
+      return StepResult(success: false, output: '$e');
+    }
+  }
+
+  static Future<StepResult> _executeBuiltinStep(String projectPath, String command, String? version) async {
+    switch (command) {
+      case '_builtin:bump':
+        final v = await bumpVersion(projectPath, 'patch');
+        return v != null ? StepResult(success: true, output: 'Bumped to $v', version: v) : StepResult(success: false, output: 'Failed to bump version');
+      case '_builtin:commit':
+        final v = version ?? 'unknown';
+        final ok = await commitVersionBump(projectPath, v);
+        return StepResult(success: ok, output: ok ? 'Committed' : 'Failed to commit');
+      case '_builtin:tag':
+        final v = version ?? 'unknown';
+        final ok = await createTag(projectPath, v);
+        return StepResult(success: ok, output: ok ? 'Tagged v$v' : 'Failed to tag');
+      case '_builtin:push':
+        final ok = await pushAll(projectPath);
+        return StepResult(success: ok, output: ok ? 'Pushed' : 'Failed to push');
+      case '_builtin:gh_release':
+        final v = version ?? 'unknown';
+        final url = await createGitHubRelease(projectPath, v);
+        return StepResult(success: url != null, output: url ?? 'Failed to create release');
+      default:
+        return StepResult(success: false, output: 'Unknown builtin: $command');
+    }
+  }
+
+  static Future<String?> _parseScriptDescription(String scriptPath) async {
+    try {
+      final lines = await File(scriptPath).readAsLines();
+      for (final line in lines.take(10)) {
+        if (line.startsWith('#') && !line.startsWith('#!')) {
+          return line.replaceFirst(RegExp(r'^#+\s*'), '').trim();
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // --- Private helpers ---
 
   static bool _hasTestFiles(String path) {
