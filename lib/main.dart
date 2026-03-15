@@ -1,13 +1,41 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/app_logger.dart';
 import 'services/referral_service.dart';
 import 'services/premium_service.dart';
+import 'services/api_server.dart';
+import 'services/notification_service.dart';
+import 'services/background_monitor.dart';
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppLogger.info('App', 'Project Launcher starting (${Platform.operatingSystem} ${Platform.operatingSystemVersion})');
   await PremiumService.configure();
+  AppLogger.info('App', 'Premium service configured');
+
+  // Start local API server if enabled
+  final prefs = await SharedPreferences.getInstance();
+  final apiEnabled = prefs.getBool('apiServerEnabled') ?? false;
+  if (apiEnabled) {
+    final apiPort = prefs.getInt('apiServerPort') ?? 9847;
+    await ApiServer.start(port: apiPort);
+  }
+
+  // Initialize notification service
+  await NotificationService.initialize();
+  final notificationsEnabled = prefs.getBool('notificationsEnabled') ?? false;
+  if (notificationsEnabled) {
+    NotificationService.start();
+  }
+
+  // Start background monitor — checks project health & git status on launch
+  BackgroundMonitor.start();
+  AppLogger.info('App', 'Background monitor started');
+
+  AppLogger.info('App', 'Startup complete, launching UI');
   runApp(const ProjectLauncherApp());
 }
 

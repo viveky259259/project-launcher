@@ -89,7 +89,7 @@ pub fn get_current_branch(repo_path: &str) -> Result<String> {
     Ok(head.shorthand().unwrap_or("HEAD").to_string())
 }
 
-/// Get monthly commit counts for the past year
+/// Get monthly commit counts for the current calendar year (Jan 1 – now)
 pub fn get_monthly_commit_counts(repo_path: &str) -> Result<HashMap<String, i32>> {
     let repo = Repository::open(repo_path)?;
     let head = repo.head()?;
@@ -97,25 +97,21 @@ pub fn get_monthly_commit_counts(repo_path: &str) -> Result<HashMap<String, i32>
 
     let mut counts: HashMap<String, i32> = HashMap::new();
     let now = Utc::now();
+    let year = now.year();
 
-    // Initialize all months in the past year
-    for i in 0..12 {
-        let month = now.month() as i32 - i;
-        let year = if month <= 0 {
-            now.year() - 1
-        } else {
-            now.year()
-        };
-        let month = if month <= 0 { month + 12 } else { month };
-        let key = format!("{}-{:02}", year, month);
+    // Initialize all months Jan–Dec for current year
+    for m in 1..=12 {
+        let key = format!("{}-{:02}", year, m);
         counts.insert(key, 0);
     }
 
-    // Calculate timestamp for one year ago
-    let one_year_ago = now
-        .checked_sub_signed(chrono::Duration::days(365))
-        .map(|d| d.timestamp())
-        .unwrap_or(0);
+    // Jan 1 of current year
+    let year_start = chrono::NaiveDate::from_ymd_opt(year, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp();
 
     let mut revwalk = repo.revwalk()?;
     revwalk.push(head_commit.id())?;
@@ -123,8 +119,8 @@ pub fn get_monthly_commit_counts(repo_path: &str) -> Result<HashMap<String, i32>
     for oid in revwalk.filter_map(|r| r.ok()) {
         if let Ok(commit) = repo.find_commit(oid) {
             let timestamp = commit.time().seconds();
-            if timestamp < one_year_ago {
-                break; // Stop when we go beyond one year
+            if timestamp < year_start {
+                break; // Stop when we go before Jan 1
             }
 
             // Convert timestamp to month key
@@ -140,12 +136,15 @@ pub fn get_monthly_commit_counts(repo_path: &str) -> Result<HashMap<String, i32>
     Ok(counts)
 }
 
-/// Get total commits in the past year
+/// Get total commits in the current calendar year (since Jan 1)
 pub fn get_yearly_commit_count(repo_path: &str) -> Result<usize> {
-    let one_year_ago = Utc::now()
-        .checked_sub_signed(chrono::Duration::days(365))
-        .map(|d| d.timestamp())
-        .unwrap_or(0);
+    let year = Utc::now().year();
+    let year_start = chrono::NaiveDate::from_ymd_opt(year, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp();
 
-    get_commit_count(repo_path, Some(one_year_ago))
+    get_commit_count(repo_path, Some(year_start))
 }

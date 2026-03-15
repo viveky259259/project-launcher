@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/health_score.dart';
 import '../models/project.dart';
 import '../services/health_service.dart';
+import '../services/platform_helper.dart';
 import '../services/project_storage.dart';
 import '../services/premium_service.dart';
 import '../screens/pro_screen.dart';
@@ -567,11 +568,7 @@ class _HealthCard extends StatelessWidget {
   }
 
   String _shortenPath(String path) {
-    final parts = path.split('/');
-    if (parts.length > 2) {
-      return '~/${parts.sublist(3).join('/')}';
-    }
-    return path;
+    return PlatformHelper.shortenPath(path);
   }
 
   String _formatTimeAgo(DateTime dt) {

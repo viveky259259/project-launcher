@@ -1,0 +1,14 @@
+{
+  "name": "project-launcher-badge",
+  "version": "1.0.0",
+  "description": "GitHub health badge service for Project Launcher",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}

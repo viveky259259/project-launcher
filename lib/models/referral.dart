@@ -53,18 +53,24 @@ class ReferralData {
 
 /// Available rewards that can be unlocked through referrals
 enum ReferralReward {
+  earlyBirdBadge,
   darkThemeMidnight,
   darkThemeOcean,
+  customAccentColor,
   founderBadge,
 }
 
 extension ReferralRewardExtension on ReferralReward {
   String get id {
     switch (this) {
+      case ReferralReward.earlyBirdBadge:
+        return 'early_bird_badge';
       case ReferralReward.darkThemeMidnight:
         return 'dark_theme_midnight';
       case ReferralReward.darkThemeOcean:
         return 'dark_theme_ocean';
+      case ReferralReward.customAccentColor:
+        return 'custom_accent_color';
       case ReferralReward.founderBadge:
         return 'founder_badge';
     }
@@ -72,10 +78,14 @@ extension ReferralRewardExtension on ReferralReward {
 
   String get name {
     switch (this) {
+      case ReferralReward.earlyBirdBadge:
+        return 'Early Bird';
       case ReferralReward.darkThemeMidnight:
         return 'Midnight Theme';
       case ReferralReward.darkThemeOcean:
         return 'Ocean Theme';
+      case ReferralReward.customAccentColor:
+        return 'Custom Accent Color';
       case ReferralReward.founderBadge:
         return 'Founder Badge';
     }
@@ -83,27 +93,37 @@ extension ReferralRewardExtension on ReferralReward {
 
   String get description {
     switch (this) {
+      case ReferralReward.earlyBirdBadge:
+        return 'Show you were here early — badge on your profile';
       case ReferralReward.darkThemeMidnight:
         return 'A deep, dark purple theme for late night coding';
       case ReferralReward.darkThemeOcean:
         return 'A calm, blue-tinted dark theme inspired by the ocean';
+      case ReferralReward.customAccentColor:
+        return 'Pick any accent color for the UI';
       case ReferralReward.founderBadge:
-        return 'Exclusive profile badge and priority support access';
+        return 'Exclusive founder badge and priority support access';
     }
   }
 
   int get requiredReferrals {
     switch (this) {
+      case ReferralReward.earlyBirdBadge:
+        return 1;
       case ReferralReward.darkThemeMidnight:
         return 3;
       case ReferralReward.darkThemeOcean:
         return 5;
+      case ReferralReward.customAccentColor:
+        return 7;
       case ReferralReward.founderBadge:
         return 10;
     }
   }
 
-  bool get isTheme => this != ReferralReward.founderBadge;
+  bool get isTheme =>
+      this == ReferralReward.darkThemeMidnight ||
+      this == ReferralReward.darkThemeOcean;
 
   static ReferralReward? fromId(String id) {
     for (final reward in ReferralReward.values) {

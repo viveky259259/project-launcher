@@ -33,6 +33,8 @@ class AppSidebar extends StatelessWidget {
     SidebarItem(icon: Icons.dashboard_rounded, label: 'Dashboard', routeId: 'home'),
     SidebarItem(icon: Icons.folder_rounded, label: 'All Projects', routeId: 'projects'),
     SidebarItem(icon: Icons.favorite_rounded, label: 'Health Dashboard', routeId: 'health'),
+    SidebarItem(icon: Icons.auto_awesome_rounded, label: 'AI Insights', routeId: 'insights'),
+    SidebarItem(icon: Icons.groups_rounded, label: 'Team Dashboard', routeId: 'team'),
     SidebarItem(icon: Icons.insights_rounded, label: 'Year in Review', routeId: 'year_review', isPro: true),
     SidebarItem(icon: Icons.card_giftcard_rounded, label: 'Referrals', routeId: 'referrals'),
   ];

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'platform_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -77,10 +78,99 @@ class PremiumService {
     log('Paddle service configured (sandbox: ${PaddleConfig.isSandbox})');
   }
 
-  /// Check if the user has an active Pro subscription
+  /// Check if the user has an active Pro subscription or promo code
   static Future<bool> isPro() async {
+    // Check promo code first (no API call needed)
+    if (await hasActivePromo()) return true;
     final status = await getSubscriptionStatus();
     return status.isActive;
+  }
+
+  // ─── Promo Codes ───
+
+  /// Valid promo codes: code → duration in days
+  static const Map<String, int> _promoCodes = {
+    'LAUNCH6M': 180,       // 6 months free
+    'FOUNDER2026': 180,    // 6 months free for founders
+    'PROJECTBROWSER': 180, // 6 months free
+  };
+
+  /// Check if a promo code is currently active
+  static Future<bool> hasActivePromo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final expiryStr = prefs.getString('promo_expiry');
+    if (expiryStr == null) return false;
+    final expiry = DateTime.tryParse(expiryStr);
+    if (expiry == null) return false;
+    return DateTime.now().isBefore(expiry);
+  }
+
+  /// Get promo expiry date (null if no active promo)
+  static Future<DateTime?> getPromoExpiry() async {
+    final prefs = await SharedPreferences.getInstance();
+    final expiryStr = prefs.getString('promo_expiry');
+    if (expiryStr == null) return null;
+    final expiry = DateTime.tryParse(expiryStr);
+    if (expiry == null || DateTime.now().isAfter(expiry)) return null;
+    return expiry;
+  }
+
+  /// Redeem a promo code. Returns result with success/failure message.
+  static Future<PremiumResult> redeemPromoCode(String code) async {
+    final normalized = code.trim().toUpperCase();
+
+    // Check if already has active promo
+    if (await hasActivePromo()) {
+      final expiry = await getPromoExpiry();
+      final days = expiry!.difference(DateTime.now()).inDays;
+      return PremiumResult(
+        success: false,
+        message: 'You already have an active promo ($days days remaining).',
+      );
+    }
+
+    // Check if already a paying subscriber
+    final status = await getSubscriptionStatus();
+    if (status.isActive && !status.isTrial) {
+      return const PremiumResult(
+        success: false,
+        message: 'You already have an active subscription.',
+      );
+    }
+
+    // Validate code
+    final days = _promoCodes[normalized];
+    if (days == null) {
+      return const PremiumResult(
+        success: false,
+        message: 'Invalid promo code.',
+      );
+    }
+
+    // Check if this code was already used
+    final prefs = await SharedPreferences.getInstance();
+    final usedCodes = prefs.getStringList('used_promo_codes') ?? [];
+    if (usedCodes.contains(normalized)) {
+      return const PremiumResult(
+        success: false,
+        message: 'This promo code has already been used.',
+      );
+    }
+
+    // Activate promo
+    final expiry = DateTime.now().add(Duration(days: days));
+    await prefs.setString('promo_expiry', expiry.toIso8601String());
+    await prefs.setString('promo_code', normalized);
+    usedCodes.add(normalized);
+    await prefs.setStringList('used_promo_codes', usedCodes);
+
+    _statusController.add(true);
+
+    final months = (days / 30).round();
+    return PremiumResult(
+      success: true,
+      message: 'Promo activated! You have $months months of free Pro access.',
+    );
   }
 
   // ─── Checkout ───
@@ -101,7 +191,7 @@ class PremiumService {
     final uri = Uri.parse(PaddleConfig.checkoutBaseUrl)
         .replace(queryParameters: params);
 
-    await Process.run('open', [uri.toString()]);
+    await PlatformHelper.openUrl(uri.toString());
     log('Opened Paddle checkout: $uri');
   }
 
@@ -110,14 +200,30 @@ class PremiumService {
     final customerId = await _getPaddleCustomerId();
     if (customerId != null) {
       final url = '${PaddleConfig.billingPortalUrl}?customer_id=$customerId';
-      await Process.run('open', [url]);
+      await PlatformHelper.openUrl(url);
     }
   }
 
   // ─── Subscription Status ───
 
   /// Get subscription status (uses 1-hour cache).
+  /// Checks promo codes first, then Paddle API.
   static Future<SubscriptionStatus> getSubscriptionStatus() async {
+    // Check promo code first
+    final promoExpiry = await getPromoExpiry();
+    if (promoExpiry != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final code = prefs.getString('promo_code') ?? 'PROMO';
+      return SubscriptionStatus(
+        isActive: true,
+        productIdentifier: code,
+        expirationDate: promoExpiry,
+        willRenew: false,
+        isTrial: false,
+        isPromo: true,
+      );
+    }
+
     // Return memory cache if fresh
     if (_cachedStatus != null) {
       final prefs = await SharedPreferences.getInstance();
@@ -360,6 +466,7 @@ class SubscriptionStatus {
   final DateTime? expirationDate;
   final bool? willRenew;
   final bool isTrial;
+  final bool isPromo;
   final String? collectionMode;
 
   const SubscriptionStatus({
@@ -369,11 +476,13 @@ class SubscriptionStatus {
     this.expirationDate,
     this.willRenew,
     this.isTrial = false,
+    this.isPromo = false,
     this.collectionMode,
   });
 
   String get planName {
     if (!isActive) return 'Free';
+    if (isPromo) return 'Pro (Promo)';
     if (isTrial) return 'Pro Trial';
     return 'Pro Monthly';
   }
@@ -393,6 +502,7 @@ class SubscriptionStatus {
         'expirationDate': expirationDate?.toIso8601String(),
         'willRenew': willRenew,
         'isTrial': isTrial,
+        'isPromo': isPromo,
         'collectionMode': collectionMode,
       };
 
@@ -406,6 +516,7 @@ class SubscriptionStatus {
           : null,
       willRenew: json['willRenew'] as bool?,
       isTrial: json['isTrial'] as bool? ?? false,
+      isPromo: json['isPromo'] as bool? ?? false,
       collectionMode: json['collectionMode'] as String?,
     );
   }

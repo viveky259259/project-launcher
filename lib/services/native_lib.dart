@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'app_logger.dart';
 
 /// FFI bindings to the Rust native library for heavy operations
 class NativeLib {
@@ -17,12 +18,19 @@ class NativeLib {
     return _instance!;
   }
 
+  static bool? _available;
+
   /// Check if native library is available
   static bool get isAvailable {
+    if (_available != null) return _available!;
     try {
       _loadLibrary();
+      _available = true;
+      AppLogger.info('FFI', 'Native library loaded successfully');
       return true;
     } catch (e) {
+      _available = false;
+      AppLogger.error('FFI', 'Native library not available: $e');
       return false;
     }
   }
@@ -38,27 +46,42 @@ class NativeLib {
 
     // Try multiple paths
     final executablePath = Platform.resolvedExecutable;
-    final appDir = executablePath.substring(0, executablePath.lastIndexOf('/'));
+    final sep = Platform.pathSeparator;
+    final appDir = executablePath.substring(0, executablePath.lastIndexOf(sep));
 
-    final paths = [
-      // macOS app bundle (production)
-      '$appDir/../Frameworks/$libName',
-      // Development: in macos/Frameworks
-      'macos/Frameworks/$libName',
-      // Development: in rust/target/release
-      'rust/target/release/$libName',
-    ];
+    final paths = <String>[];
+    if (Platform.isMacOS) {
+      paths.addAll([
+        '$appDir/../Frameworks/$libName',
+        'macos/Frameworks/$libName',
+      ]);
+    } else if (Platform.isWindows) {
+      paths.add('$appDir\\$libName');
+    } else {
+      // Linux
+      paths.addAll([
+        '$appDir/lib/$libName',
+        '$appDir/../lib/$libName',
+      ]);
+    }
+    // Development fallback
+    paths.add('rust${sep}target${sep}release$sep$libName');
 
+    final errors = <String>[];
     for (final path in paths) {
       try {
         _lib = DynamicLibrary.open(path);
+        AppLogger.info('FFI', 'Loaded from: $path');
         return _lib!;
       } catch (e) {
+        errors.add('  $path: $e');
         continue;
       }
     }
 
-    throw Exception('Failed to load native library: $libName');
+    final msg = 'Failed to load $libName. Tried:\n${errors.join('\n')}';
+    AppLogger.error('FFI', msg);
+    throw Exception(msg);
   }
 
   // ==========================================================================

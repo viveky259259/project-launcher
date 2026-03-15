@@ -3,14 +3,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/app_logger.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/project.dart';
 import '../models/health_score.dart';
+import '../services/git_service.dart';
 import '../services/project_storage.dart';
 import '../services/launcher_service.dart';
+import '../services/platform_helper.dart';
 import '../services/project_scanner.dart';
 import '../services/health_service.dart';
 import '../services/premium_service.dart';
+import '../services/project_type_detector.dart';
 import '../main.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home/project_card.dart';
@@ -20,13 +24,22 @@ import '../widgets/home/status_bar.dart';
 import '../widgets/theme_switcher.dart';
 import 'year_review_screen.dart';
 import 'health_screen.dart';
+import 'insights_screen.dart';
+import 'plugins_screen.dart';
 import 'referral_screen.dart';
 import 'pro_screen.dart';
 import 'project_settings_screen.dart';
 import 'onboarding_screen.dart';
 import 'subscription_screen.dart';
+import '../services/api_server.dart';
+import '../services/notification_service.dart';
+import '../services/background_monitor.dart';
+import 'notifications_screen.dart';
+import 'dashboard_customize_screen.dart';
+import '../services/dashboard_config.dart';
+import '../services/ai_service.dart';
 
-enum SortMode { lastOpened, name }
+enum SortMode { lastOpened, name, lastChanged }
 enum ViewMode { list, folder }
 
 class HomeScreen extends StatefulWidget {
@@ -53,6 +66,15 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _lastScanTime;
   final _searchFocusNode = FocusNode();
   bool _isPro = false;
+  Map<String, ProjectStack> _projectStacks = {};
+  ProjectType? _selectedProjectType;
+  ActivityFilter _activityFilter = ActivityFilter.all;
+  GitFilter _gitFilter = GitFilter.all;
+  Map<String, String> _branchNames = {};
+  Map<String, DateTime?> _lastCommitDates = {};
+  bool _pinnedCollapsed = false;
+  Map<String, bool> _projectAIInsights = {};
+  StreamSubscription<FileSystemEvent>? _projectsFileWatcher;
 
   ProjectLauncherAppState? get _appState => ProjectLauncherApp.of(context);
 
@@ -63,16 +85,51 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadProjects();
     _loadHealthScores();
     _loadProStatus();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      _loadProjects();
-    });
+    _loadAIInsightsFlags();
+    _checkFirstRun();
+    _watchProjectsFile();
+    BackgroundMonitor.addListener(_onMonitorUpdate);
+    // No periodic refresh — data loads once on init, then on user action
+    // (scan, add, remove, pin, tag edit, returning from settings)
+  }
+
+  void _onMonitorUpdate() {
+    if (mounted) {
+      setState(() {});
+      // Refresh health scores when background check finishes
+      if (BackgroundMonitor.status == MonitorStatus.done) {
+        _loadHealthScores();
+      }
+    }
+  }
+
+  Future<void> _checkFirstRun() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasOnboarded = prefs.getBool('hasCompletedOnboarding') ?? false;
+    if (hasOnboarded) return;
+
+    // Wait for projects to load
+    final projects = await ProjectStorage.loadProjects();
+    if (projects.isEmpty && mounted) {
+      // Mark onboarding as done so we don't re-trigger
+      await prefs.setBool('hasCompletedOnboarding', true);
+      // Auto-open the scan dialog after the first frame
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scanForProjects();
+      });
+    } else {
+      // Already has projects, just mark as done
+      await prefs.setBool('hasCompletedOnboarding', true);
+    }
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _projectsFileWatcher?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    BackgroundMonitor.removeListener(_onMonitorUpdate);
     super.dispose();
   }
 
@@ -87,10 +144,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     final sortIndex = prefs.getInt('sortMode') ?? 0;
     final viewIndex = prefs.getInt('viewMode') ?? 0;
+    final pinnedCollapsed = prefs.getBool('pinnedCollapsed') ?? false;
     if (mounted) {
       setState(() {
         _sortMode = SortMode.values[sortIndex];
         _viewMode = ViewMode.values[viewIndex];
+        _pinnedCollapsed = pinnedCollapsed;
       });
     }
   }
@@ -98,10 +157,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadProjects() async {
     final projects = await ProjectStorage.loadProjects();
     final tags = await ProjectStorage.getAllTags();
+    // Detect project stacks for new projects only
+    final stacks = Map<String, ProjectStack>.from(_projectStacks);
+    for (final p in projects) {
+      if (!stacks.containsKey(p.path)) {
+        stacks[p.path] = ProjectStack.detect(p.path);
+      }
+    }
     if (mounted) {
       setState(() {
         _projects = projects;
         _allTags = tags;
+        _projectStacks = stacks;
         _isLoading = false;
       });
     }
@@ -112,8 +179,65 @@ class _HomeScreenState extends State<HomeScreen> {
     final scores = await HealthService.getHealthScores(
       projects.map((p) => p.path).toList(),
     );
+    // Load branch names and last commit dates for git repos
+    final branches = <String, String>{};
+    final commitDates = <String, DateTime?>{};
+    for (final p in projects) {
+      final branch = await GitService.getCurrentBranch(p.path);
+      if (branch != null) branches[p.path] = branch;
+      final changedDate = await GitService.getLastChangedDate(p.path);
+      commitDates[p.path] = changedDate;
+    }
     if (mounted) {
-      setState(() => _healthScores = scores);
+      setState(() {
+        _healthScores = scores;
+        _branchNames = branches;
+        _lastCommitDates = commitDates;
+      });
+    }
+  }
+
+  Future<void> _loadAIInsightsFlags() async {
+    final projects = await ProjectStorage.loadProjects();
+    final flags = <String, bool>{};
+    for (final p in projects) {
+      flags[p.path] = await AIService.hasInsights(p.path);
+    }
+    if (mounted) {
+      setState(() => _projectAIInsights = flags);
+    }
+  }
+
+  /// Watch ~/.project_launcher/projects.json for external modifications
+  /// (e.g., from the `addproject` CLI command).
+  void _watchProjectsFile() {
+    try {
+      final filePath = '${PlatformHelper.dataDir}${Platform.pathSeparator}projects.json';
+      final file = File(filePath);
+      if (!file.existsSync()) {
+        // File doesn't exist yet — watch the directory instead
+        final dir = Directory(PlatformHelper.dataDir);
+        if (!dir.existsSync()) return;
+        _projectsFileWatcher = dir.watch(events: FileSystemEvent.create | FileSystemEvent.modify).listen((event) {
+          if (event.path.endsWith('projects.json')) {
+            AppLogger.info('FileWatch', 'projects.json changed (directory event), reloading');
+            _loadProjects();
+            _loadHealthScores();
+            _loadAIInsightsFlags();
+          }
+        });
+        AppLogger.info('FileWatch', 'Watching directory for projects.json creation');
+        return;
+      }
+      _projectsFileWatcher = file.watch(events: FileSystemEvent.modify).listen((event) {
+        AppLogger.info('FileWatch', 'projects.json modified externally, reloading');
+        _loadProjects();
+        _loadHealthScores();
+        _loadAIInsightsFlags();
+      });
+      AppLogger.info('FileWatch', 'Watching projects.json for changes');
+    } catch (e) {
+      AppLogger.warn('FileWatch', 'Could not set up file watcher: $e');
     }
   }
 
@@ -161,6 +285,60 @@ class _HomeScreenState extends State<HomeScreen> {
       }).toList();
     }
 
+    if (_selectedProjectType != null) {
+      filtered = filtered.where((p) {
+        final stack = _projectStacks[p.path];
+        return stack != null && stack.contains(_selectedProjectType!);
+      }).toList();
+    }
+
+    if (_activityFilter != ActivityFilter.all) {
+      filtered = filtered.where((p) {
+        final health = _healthScores[p.path];
+        final lastCommit = health?.details.lastCommitDate;
+        if (lastCommit == null) return _activityFilter == ActivityFilter.older;
+
+        final now = DateTime.now();
+        final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+        final startOfThisWeek = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day);
+        final startOfLastWeek = startOfThisWeek.subtract(const Duration(days: 7));
+        final startOfThisMonth = DateTime(now.year, now.month, 1);
+        final startOfLastMonth = DateTime(now.year, now.month - 1, 1);
+
+        switch (_activityFilter) {
+          case ActivityFilter.thisWeek:
+            return lastCommit.isAfter(startOfThisWeek);
+          case ActivityFilter.lastWeek:
+            return lastCommit.isAfter(startOfLastWeek) && lastCommit.isBefore(startOfThisWeek);
+          case ActivityFilter.thisMonth:
+            return lastCommit.isAfter(startOfThisMonth);
+          case ActivityFilter.lastMonth:
+            return lastCommit.isAfter(startOfLastMonth) && lastCommit.isBefore(startOfThisMonth);
+          case ActivityFilter.older:
+            return lastCommit.isBefore(startOfLastMonth);
+          default:
+            return true;
+        }
+      }).toList();
+    }
+
+    if (_gitFilter != GitFilter.all) {
+      filtered = filtered.where((p) {
+        final isGit = _isGitRepo(p.path);
+        final unpushed = _hasUnpushed(p.path);
+        switch (_gitFilter) {
+          case GitFilter.gitOnly:
+            return isGit;
+          case GitFilter.noGit:
+            return !isGit;
+          case GitFilter.unpushed:
+            return unpushed;
+          default:
+            return true;
+        }
+      }).toList();
+    }
+
     return filtered;
   }
 
@@ -169,6 +347,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_sortMode == SortMode.name) {
       sorted.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } else if (_sortMode == SortMode.lastChanged) {
+      sorted.sort((a, b) {
+        final aCommit = _lastCommitDates[a.path];
+        final bCommit = _lastCommitDates[b.path];
+        // Projects with commits sort before those without
+        if (aCommit == null && bCommit == null) return 0;
+        if (aCommit == null) return 1;
+        if (bCommit == null) return -1;
+        return bCommit.compareTo(aCommit);
+      });
     } else {
       sorted.sort((a, b) {
         final aTime = a.lastOpenedAt ?? a.addedAt;
@@ -177,11 +365,14 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    sorted.sort((a, b) {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return 0;
-    });
+    // Pinned-first only for Recent and A-Z sorts, not for Last Changed
+    if (_sortMode != SortMode.lastChanged) {
+      sorted.sort((a, b) {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return 0;
+      });
+    }
 
     return sorted;
   }
@@ -189,8 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, List<Project>> get _groupedProjects {
     final groups = <String, List<Project>>{};
     for (final project in _sortedProjects) {
-      final parentPath = project.path.substring(0, project.path.lastIndexOf('/'));
-      final parentName = parentPath.split('/').last;
+      final parentName = PlatformHelper.parentDirName(project.path);
       groups.putIfAbsent(parentName, () => []).add(project);
     }
     final sortedKeys = groups.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -204,6 +394,68 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int get _needsAttentionCount => _healthScores.values
       .where((s) => s.details.category == HealthCategory.needsAttention).length;
+
+  Map<ActivityFilter, int> get _activityCounts {
+    final counts = <ActivityFilter, int>{};
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final startOfThisWeek = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day);
+    final startOfLastWeek = startOfThisWeek.subtract(const Duration(days: 7));
+    final startOfThisMonth = DateTime(now.year, now.month, 1);
+    final startOfLastMonth = DateTime(now.year, now.month - 1, 1);
+
+    int thisWeek = 0, lastWeek = 0, thisMonth = 0, lastMonth = 0, older = 0;
+
+    for (final p in _projects) {
+      final health = _healthScores[p.path];
+      final lastCommit = health?.details.lastCommitDate;
+      if (lastCommit == null) {
+        older++;
+        continue;
+      }
+      if (lastCommit.isAfter(startOfThisWeek)) {
+        thisWeek++;
+      } else if (lastCommit.isAfter(startOfLastWeek)) {
+        lastWeek++;
+      }
+      if (lastCommit.isAfter(startOfThisMonth)) {
+        thisMonth++;
+      } else if (lastCommit.isAfter(startOfLastMonth)) {
+        lastMonth++;
+      } else {
+        older++;
+      }
+    }
+
+    counts[ActivityFilter.all] = _projects.length;
+    counts[ActivityFilter.thisWeek] = thisWeek;
+    counts[ActivityFilter.lastWeek] = lastWeek;
+    counts[ActivityFilter.thisMonth] = thisMonth;
+    counts[ActivityFilter.lastMonth] = lastMonth;
+    counts[ActivityFilter.older] = older;
+    return counts;
+  }
+
+  int get _unpushedCount {
+    int count = 0;
+    for (final p in _projects) {
+      final health = _healthScores[p.path];
+      if (health != null && !health.details.noUnpushedCommits) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  bool _isGitRepo(String path) {
+    final health = _healthScores[path];
+    return health != null && health.details.gitScore > 0;
+  }
+
+  bool _hasUnpushed(String path) {
+    final health = _healthScores[path];
+    return health != null && !health.details.noUnpushedCommits;
+  }
 
   List<double> get _weeklyActivity {
     final now = DateTime.now();
@@ -364,7 +616,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result != null && result.isNotEmpty) {
       final dir = Directory(result);
       if (await dir.exists()) {
-        final name = result.split('/').last;
+        final name = PlatformHelper.basename(result);
         final project = Project(
           name: name,
           path: result,
@@ -458,9 +710,130 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showInsights() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const InsightsScreen()),
+    );
+  }
+
   void _showReferrals() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const ReferralScreen()),
+    );
+  }
+
+  void _showApiSettings() {
+    final cs = Theme.of(context).colorScheme;
+    final portController = TextEditingController(text: '${ApiServer.port}');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: cs.surface,
+          title: Row(
+            children: [
+              Icon(Icons.api_rounded, color: AppColors.accent, size: 22),
+              const SizedBox(width: 10),
+              const Text('Local API Server'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Expose project data via a local REST API for scripts, '
+                'Alfred workflows, Raycast extensions, and other tools.',
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant, height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Server Status',
+                      style: Theme.of(ctx).textTheme.titleSmall),
+                  ),
+                  Switch(
+                    value: ApiServer.isRunning,
+                    activeThumbColor: AppColors.accent,
+                    onChanged: (enabled) async {
+                      if (enabled) {
+                        final port = int.tryParse(portController.text) ?? 9847;
+                        await ApiServer.start(port: port);
+                      } else {
+                        await ApiServer.stop();
+                      }
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('apiServerEnabled', enabled);
+                      if (enabled) {
+                        await prefs.setInt('apiServerPort', ApiServer.port);
+                      }
+                      setDialogState(() {});
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: portController,
+                decoration: InputDecoration(
+                  labelText: 'Port',
+                  hintText: '9847',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  prefixIcon: const Icon(Icons.numbers, size: 18),
+                  suffixText: ApiServer.isRunning ? 'In use' : null,
+                ),
+                keyboardType: TextInputType.number,
+                enabled: !ApiServer.isRunning,
+              ),
+              if (ApiServer.isRunning) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Base URL',
+                        style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant)),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        'http://localhost:${ApiServer.port}/api',
+                        style: AppTypography.mono(fontSize: 12, color: AppColors.accent),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('Try it:',
+                        style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant)),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        'curl localhost:${ApiServer.port}/api/projects',
+                        style: AppTypography.mono(fontSize: 11, color: cs.onSurface),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -477,6 +850,13 @@ class _HomeScreenState extends State<HomeScreen> {
           onRemoved: () {
             _loadProjects();
             _loadHealthScores();
+          },
+          onOpenTerminal: () => _openInTerminal(project),
+          onOpenVSCode: () => _openInVSCode(project),
+          onTogglePin: () {
+            _togglePin(project);
+            Navigator.of(context).pop();
+            _openProjectSettings(project);
           },
         ),
       ),
@@ -521,7 +901,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final pinnedProjects = _sortedProjects.where((p) => p.isPinned).toList();
-    final recentProjects = _sortedProjects.where((p) => !p.isPinned).toList();
+    final recentProjects = _sortedProjects;
     final appState = _appState;
 
     return CallbackShortcuts(
@@ -544,11 +924,10 @@ class _HomeScreenState extends State<HomeScreen> {
               FilterBar(
                 healthFilter: _healthFilter,
                 stalenessFilter: _stalenessFilter,
-                sortLabel: _sortMode == SortMode.lastOpened ? 'Recent' : 'A-Z',
-                onSortToggle: () {
-                  final newMode = _sortMode == SortMode.lastOpened ? SortMode.name : SortMode.lastOpened;
-                  setState(() => _sortMode = newMode);
-                  _saveSortPreference(newMode);
+                sortMode: _sortMode,
+                onSortChanged: (mode) {
+                  setState(() => _sortMode = mode);
+                  _saveSortPreference(mode);
                 },
                 onHealthFilterChanged: (f) => setState(() => _healthFilter = f),
                 onStalenessFilterChanged: (f) => setState(() => _stalenessFilter = f),
@@ -561,6 +940,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 allTags: _allTags,
                 selectedTag: _selectedTag,
                 onTagChanged: (tag) => setState(() => _selectedTag = tag),
+                availableProjectTypes: _projectStacks.values.expand((s) => s.all).where((t) => t != ProjectType.unknown).toSet(),
+                selectedProjectType: _selectedProjectType,
+                onProjectTypeChanged: (type) => setState(() => _selectedProjectType = type),
+                activityFilter: _activityFilter,
+                onActivityFilterChanged: (f) => setState(() => _activityFilter = f),
+                activityCounts: _activityCounts,
+                gitFilter: _gitFilter,
+                onGitFilterChanged: (f) => setState(() => _gitFilter = f),
+                unpushedCount: _unpushedCount,
               ),
 
               // Main content
@@ -579,7 +967,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               : _sortedProjects.isEmpty
                                   ? _buildNoResults()
                                   : _viewMode == ViewMode.folder
-                                      ? _buildGroupedList()
+                                      ? _buildGridView()
                                       : _buildProjectList(pinnedProjects, recentProjects),
                     ),
 
@@ -592,7 +980,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         isPro: _isPro,
                         onYearReviewTap: _showYearInReview,
                         onHealthTap: _showHealthDashboard,
+                        onInsightsTap: _showInsights,
                         weeklyActivity: _weeklyActivity,
+                        activityCounts: _activityCounts,
                       ),
                   ],
                 ),
@@ -649,60 +1039,73 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTopBar(ColorScheme cs) {
     return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: BoxDecoration(
+        color: cs.surface,
         border: Border(
-          bottom: BorderSide(color: cs.outline.withValues(alpha: 0.15)),
+          bottom: BorderSide(color: cs.outline.withValues(alpha: 0.1)),
         ),
       ),
       child: Row(
         children: [
-          // macOS traffic light dots
-          Row(
-            children: [
-              _TrafficLight(color: const Color(0xFFFF5F56)),
-              const SizedBox(width: 8),
-              _TrafficLight(color: const Color(0xFFFFBD2E)),
-              const SizedBox(width: 8),
-              _TrafficLight(color: const Color(0xFF27C93F)),
-            ],
-          ),
-          const SizedBox(width: 24),
+          // macOS drag area + branding
+          const SizedBox(width: 68), // space for native traffic lights
 
-          // App title
-          Text(
-            'Project Launcher',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: cs.onSurface,
+          // App branding
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.accent.withValues(alpha: 0.1),
+                  const Color(0xFFE879F9).withValues(alpha: 0.08),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.rocket_launch_rounded, size: 16, color: AppColors.accent),
+                const SizedBox(width: 6),
+                Text(
+                  'Project Browser',
+                  style: AppTypography.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ],
             ),
           ),
 
-          const SizedBox(width: 24),
+          const SizedBox(width: 16),
 
-          // Search bar
+          // Search bar — expands to fill
           Expanded(
             child: Container(
-              height: 36,
+              height: 34,
               decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+                color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: cs.outline.withValues(alpha: 0.1)),
               ),
               child: Row(
                 children: [
                   const SizedBox(width: 12),
-                  Icon(Icons.search, size: 18, color: cs.onSurfaceVariant),
+                  Icon(Icons.search_rounded, size: 16, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _searchController,
                       focusNode: _searchFocusNode,
                       onChanged: (value) => setState(() => _searchQuery = value),
-                      style: AppTypography.mono(fontSize: 13, color: cs.onSurface),
+                      style: AppTypography.inter(fontSize: 13, color: cs.onSurface),
                       decoration: InputDecoration(
-                        hintText: 'Search projects (Cmd+K)',
-                        hintStyle: AppTypography.mono(fontSize: 13, color: cs.onSurfaceVariant),
+                        hintText: 'Search projects...',
+                        hintStyle: AppTypography.inter(fontSize: 13, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
                         border: InputBorder.none,
                         isDense: true,
                         contentPadding: EdgeInsets.zero,
@@ -713,12 +1116,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     margin: const EdgeInsets.only(right: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: cs.onSurface.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      color: cs.onSurface.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       '\u2318K',
-                      style: AppTypography.mono(fontSize: 10, color: cs.onSurfaceVariant),
+                      style: AppTypography.mono(fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
                     ),
                   ),
                 ],
@@ -726,68 +1129,190 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
 
-          // Action icons
-          IconButton(
-            icon: const Icon(Icons.radar_rounded, size: 20),
-            onPressed: _scanForProjects,
+          // Syncing indicator
+          if (BackgroundMonitor.status == MonitorStatus.checking)
+            _SyncingPill(
+              progress: BackgroundMonitor.checkProgress,
+              total: BackgroundMonitor.checkTotal,
+            ),
+
+          if (BackgroundMonitor.status == MonitorStatus.checking)
+            const SizedBox(width: 8),
+
+          // Divider
+          Container(
+            width: 1,
+            height: 24,
+            color: cs.outline.withValues(alpha: 0.1),
+          ),
+
+          const SizedBox(width: 8),
+
+          // Action buttons — compact with hover tooltips
+          _HeaderButton(
+            icon: Icons.radar_rounded,
             tooltip: 'Scan for projects',
-            color: cs.onSurfaceVariant,
+            onPressed: _scanForProjects,
           ),
-          IconButton(
-            icon: const Icon(Icons.terminal_rounded, size: 20),
-            onPressed: () => LauncherService.openTerminal(),
+          _HeaderButton(
+            icon: Icons.terminal_rounded,
             tooltip: 'New Terminal',
-            color: cs.onSurfaceVariant,
+            onPressed: () => LauncherService.openTerminal(),
           ),
-          IconButton(
-            icon: const Icon(Icons.code_rounded, size: 20),
-            onPressed: () => LauncherService.openVSCode(),
+          _HeaderButton(
+            icon: Icons.code_rounded,
             tooltip: 'Open VS Code',
-            color: cs.onSurfaceVariant,
+            onPressed: () => LauncherService.openVSCode(),
           ),
-          IconButton(
-            icon: const Icon(Icons.add_rounded, size: 20),
-            onPressed: _addProjectManually,
+          _HeaderButton(
+            icon: Icons.add_rounded,
             tooltip: 'Add project',
-            color: cs.onSurfaceVariant,
+            onPressed: _addProjectManually,
           ),
+
+          const SizedBox(width: 4),
+
+          // Divider
+          Container(
+            width: 1,
+            height: 24,
+            color: cs.outline.withValues(alpha: 0.1),
+          ),
+
+          const SizedBox(width: 4),
+
+          // Pro badge or upgrade
           if (_isPro)
-            Container(
-              margin: const EdgeInsets.only(right: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFD700).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(AppRadius.full),
-                border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.3)),
+            _buildProBadge()
+          else
+            _HeaderButton(
+              icon: Icons.workspace_premium_rounded,
+              tooltip: 'Upgrade to Pro',
+              onPressed: _showSubscription,
+              accentColor: const Color(0xFFFFD700),
+            ),
+
+          // Plugins
+          _HeaderButton(
+            icon: Icons.extension_rounded,
+            tooltip: 'Plugins',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PluginsScreen()),
+            ),
+          ),
+
+          // API Server
+          _HeaderButton(
+            icon: ApiServer.isRunning ? Icons.api_rounded : Icons.api_outlined,
+            tooltip: ApiServer.isRunning
+                ? 'API running on :${ApiServer.port}'
+                : 'API Server (off)',
+            onPressed: _showApiSettings,
+            accentColor: ApiServer.isRunning ? AppColors.success : null,
+          ),
+
+          // Notifications
+          Stack(
+            children: [
+              _HeaderButton(
+                icon: NotificationService.isRunning
+                    ? Icons.notifications_active_rounded
+                    : Icons.notifications_none_rounded,
+                tooltip: 'Notifications',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const NotificationsScreen()),
+                ).then((_) => setState(() {})),
               ),
-              child: GestureDetector(
-                onTap: _showSubscription,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.workspace_premium, size: 12, color: Color(0xFFFFD700)),
-                    const SizedBox(width: 4),
-                    Text(
-                      'PRO',
-                      style: AppTypography.inter(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFFFFD700),
+              if (NotificationService.unreadCount > 0)
+                Positioned(
+                  right: 4,
+                  top: 4,
+                  child: Container(
+                    width: 16,
+                    height: 16,
+                    decoration: const BoxDecoration(
+                      color: AppColors.error,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${NotificationService.unreadCount}',
+                        style: AppTypography.inter(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                  ],
+                  ),
+                ),
+            ],
+          ),
+
+          // Customize Dashboard
+          _HeaderButton(
+            icon: Icons.dashboard_customize_rounded,
+            tooltip: 'Customize Dashboard',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => DashboardCustomizeScreen(
+                  onSaved: () => setState(() {}),
                 ),
               ),
             ),
-          IconButton(
-            icon: const Icon(Icons.settings_rounded, size: 20),
+          ),
+
+          // Settings
+          _HeaderButton(
+            icon: Icons.palette_outlined,
+            tooltip: 'Theme',
             onPressed: () => setState(() => _showThemeSwitcher = !_showThemeSwitcher),
-            tooltip: 'Settings',
-            color: cs.onSurfaceVariant,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProBadge() {
+    return GestureDetector(
+      onTap: _showSubscription,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+            ),
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFFFD700).withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.workspace_premium, size: 12, color: Colors.black87),
+              const SizedBox(width: 4),
+              Text(
+                'PRO',
+                style: AppTypography.inter(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -800,17 +1325,42 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // Pinned section
         if (pinned.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Text(
-              'PINNED',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: cs.onSurfaceVariant,
-                letterSpacing: 1.2,
+          InkWell(
+            onTap: () async {
+              setState(() => _pinnedCollapsed = !_pinnedCollapsed);
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('pinnedCollapsed', _pinnedCollapsed);
+            },
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8, top: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    _pinnedCollapsed ? Icons.chevron_right_rounded : Icons.expand_more_rounded,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'PINNED',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${pinned.length}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          ...pinned.map((p) => _buildCard(p)),
+          if (!_pinnedCollapsed) ...pinned.map((p) => _buildCard(p)),
           const SizedBox(height: 16),
         ],
 
@@ -832,46 +1382,111 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildGroupedList() {
-    final cs = Theme.of(context).colorScheme;
-    final groups = _groupedProjects;
+  Widget _buildGridView() {
+    final projects = _sortedProjects;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        for (final entry in groups.entries) ...[
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 8, top: 8),
-            child: Row(
-              children: [
-                Icon(Icons.folder_rounded, size: 16, color: cs.onSurfaceVariant),
-                const SizedBox(width: 8),
-                Text(
-                  entry.key.toUpperCase(),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${entry.value.length}',
-                  style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
-                ),
-              ],
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth > 900 ? 5 : constraints.maxWidth > 600 ? 4 : 3;
+        return GridView.builder(
+          padding: const EdgeInsets.all(16),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 0.88,
           ),
-          ...entry.value.map((p) => _buildCard(p)),
-          const SizedBox(height: 8),
-        ],
-      ],
+          itemCount: projects.length,
+          itemBuilder: (context, index) => _buildGridCard(projects[index]),
+        );
+      },
+    );
+  }
+
+  Widget _buildGridCard(Project project) {
+    final stack = _projectStacks[project.path] ?? const ProjectStack(primary: ProjectType.unknown);
+    final health = _healthScores[project.path];
+    final lastCommit = health?.details.lastCommitDate;
+
+    // Relative time
+    String relTime = '';
+    Color activityColor = const Color(0xFF6B7280);
+    if (lastCommit != null) {
+      final diff = DateTime.now().difference(lastCommit);
+      if (diff.inMinutes < 60) {
+        relTime = '${diff.inMinutes}m ago';
+      } else if (diff.inHours < 24) {
+        relTime = '${diff.inHours}h ago';
+      } else if (diff.inDays < 7) {
+        relTime = '${diff.inDays}d ago';
+      } else if (diff.inDays < 30) {
+        relTime = '${(diff.inDays / 7).floor()}w ago';
+      } else if (diff.inDays < 365) {
+        relTime = '${(diff.inDays / 30).floor()}mo ago';
+      } else {
+        relTime = '${(diff.inDays / 365).floor()}y ago';
+      }
+
+      final days = diff.inDays;
+      if (days <= 1) {
+        activityColor = AppColors.success;
+      } else if (days <= 7) {
+        activityColor = AppColors.accent;
+      } else if (days <= 30) {
+        activityColor = AppColors.warning;
+      }
+    }
+
+    // Activity badge
+    String? activityBadge;
+    Color? badgeColor;
+    if (lastCommit != null) {
+      final days = DateTime.now().difference(lastCommit).inDays;
+      if (days <= 1) {
+        activityBadge = 'TODAY';
+        badgeColor = AppColors.success;
+      } else if (days <= 7) {
+        activityBadge = 'THIS WEEK';
+        badgeColor = AppColors.accent;
+      } else if (days <= 30) {
+        activityBadge = 'THIS MONTH';
+        badgeColor = AppColors.warning;
+      }
+    }
+    if (project.isPinned && activityBadge == null) {
+      activityBadge = 'PINNED';
+      badgeColor = AppColors.accent;
+    }
+
+    final gridHs = _healthScores[project.path];
+    return _GridProjectCard(
+      project: project,
+      stack: stack,
+      dateLabel: relTime,
+      activityBadge: activityBadge,
+      badgeColor: badgeColor,
+      activityColor: activityColor,
+      branchName: _branchNames[project.path],
+      healthScore: gridHs?.details.totalScore,
+      hasUncommitted: gridHs != null && !gridHs.details.noUncommittedChanges,
+      hasUnpushed: _hasUnpushed(project.path),
+      onTap: () => _openProjectSettings(project),
+      onOpenTerminal: () => _openInTerminal(project),
+      onOpenVSCode: () => _openInVSCode(project),
     );
   }
 
   Widget _buildCard(Project project) {
+    final hs = _healthScores[project.path];
     return ProjectCard(
       project: project,
-      healthScore: _healthScores[project.path],
+      healthScore: hs,
+      projectStack: _projectStacks[project.path] ?? const ProjectStack(primary: ProjectType.unknown),
+      isGitRepo: _isGitRepo(project.path),
+      hasUnpushed: _hasUnpushed(project.path),
+      hasUncommitted: hs != null && !hs.details.noUncommittedChanges,
+      branchName: _branchNames[project.path],
+      hasAIInsights: _projectAIInsights[project.path] ?? false,
       onRemove: () => _removeProject(project),
       onOpenTerminal: () => _openInTerminal(project),
       onOpenVSCode: () => _openInVSCode(project),
@@ -926,16 +1541,449 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildNoResults() {
     final cs = Theme.of(context).colorScheme;
+
+    // Build a contextual message based on active filters
+    final activeFilters = <String>[];
+    if (_searchQuery.isNotEmpty) activeFilters.add('"$_searchQuery"');
+    if (_selectedTag != null) activeFilters.add('tag: $_selectedTag');
+    if (_healthFilter != HealthFilter.all) activeFilters.add(_healthFilter.name);
+    if (_stalenessFilter != StalenessFilter.all) activeFilters.add('stale only');
+    if (_selectedProjectType != null) activeFilters.add(_selectedProjectType!.label);
+    if (_activityFilter != ActivityFilter.all) activeFilters.add(_activityFilter.name);
+    if (_gitFilter != GitFilter.all) activeFilters.add(_gitFilter.name);
+
+    final hasFilters = activeFilters.isNotEmpty;
+    final title = hasFilters
+        ? 'No projects match your filters'
+        : 'No projects found';
+    final subtitle = hasFilters
+        ? 'Active filters: ${activeFilters.join(' · ')}'
+        : 'Try scanning for projects or adding one manually.';
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search_off_rounded, size: 48, color: cs.onSurfaceVariant),
+          Icon(
+            hasFilters ? Icons.filter_alt_off_rounded : Icons.search_off_rounded,
+            size: 48,
+            color: cs.onSurfaceVariant,
+          ),
           const SizedBox(height: 16),
           Text(
-            'No results for "$_searchQuery"',
+            title,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
               color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          if (hasFilters) ...[
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () => setState(() {
+                _searchQuery = '';
+                _searchController.clear();
+                _selectedTag = null;
+                _healthFilter = HealthFilter.all;
+                _stalenessFilter = StalenessFilter.all;
+                _selectedProjectType = null;
+                _activityFilter = ActivityFilter.all;
+                _gitFilter = GitFilter.all;
+              }),
+              icon: const Icon(Icons.clear_all_rounded, size: 16),
+              label: const Text('Clear all filters'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GridProjectCard extends StatefulWidget {
+  final Project project;
+  final ProjectStack stack;
+  final String dateLabel;
+  final String? activityBadge;
+  final Color? badgeColor;
+  final Color activityColor;
+  final String? branchName;
+  final int? healthScore;
+  final bool hasUncommitted;
+  final bool hasUnpushed;
+  final VoidCallback onTap;
+  final VoidCallback onOpenTerminal;
+  final VoidCallback onOpenVSCode;
+
+  const _GridProjectCard({
+    required this.project,
+    required this.stack,
+    required this.dateLabel,
+    this.activityBadge,
+    this.badgeColor,
+    this.activityColor = const Color(0xFF6B7280),
+    this.branchName,
+    this.healthScore,
+    this.hasUncommitted = false,
+    this.hasUnpushed = false,
+    required this.onTap,
+    required this.onOpenTerminal,
+    required this.onOpenVSCode,
+  });
+
+  @override
+  State<_GridProjectCard> createState() => _GridProjectCardState();
+}
+
+class _GridProjectCardState extends State<_GridProjectCard> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final primary = widget.stack.primary;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: _isHovered ? cs.surfaceContainerHighest : cs.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _isHovered
+                  ? cs.outline.withValues(alpha: 0.4)
+                  : cs.outline.withValues(alpha: 0.12),
+            ),
+            boxShadow: _isHovered
+                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 4))]
+                : [],
+          ),
+          child: Stack(
+            children: [
+              // Main content
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Large icon
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: primary.color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Center(
+                            child: Icon(primary.icon, size: 28, color: primary.color),
+                          ),
+                          // Secondary badge
+                          if (widget.stack.secondary.isNotEmpty)
+                            Positioned(
+                              right: -4,
+                              bottom: -4,
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  color: widget.stack.secondary.first.color,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: cs.surface, width: 2),
+                                ),
+                                child: Icon(
+                                  widget.stack.secondary.first.icon,
+                                  size: 11,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Project name
+                    Text(
+                      widget.project.name,
+                      style: AppTypography.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurface,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 3),
+                    // Date + micro indicators
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.dateLabel.isNotEmpty ? widget.dateLabel : 'No commits',
+                          style: AppTypography.mono(
+                            fontSize: 11,
+                            color: widget.dateLabel.isNotEmpty
+                                ? widget.activityColor.withValues(alpha: 0.8)
+                                : cs.onSurfaceVariant.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        if (widget.healthScore != null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: widget.healthScore! >= 80
+                                  ? AppColors.success
+                                  : widget.healthScore! >= 50
+                                      ? AppColors.warning
+                                      : AppColors.error,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                        if (widget.hasUncommitted)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Icon(Icons.edit_note_rounded, size: 12, color: AppColors.warning.withValues(alpha: 0.8)),
+                          ),
+                        if (widget.hasUnpushed)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 3),
+                            child: Icon(Icons.cloud_upload_outlined, size: 11, color: AppColors.warning.withValues(alpha: 0.8)),
+                          ),
+                      ],
+                    ),
+                    // Branch name
+                    if (widget.branchName != null) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.fork_right_rounded, size: 10, color: AppColors.accent.withValues(alpha: 0.6)),
+                          const SizedBox(width: 2),
+                          Text(
+                            widget.branchName!,
+                            style: AppTypography.mono(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.accent.withValues(alpha: 0.7),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ],
+                    // Tags
+                    if (widget.project.tags.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 3,
+                        runSpacing: 2,
+                        children: widget.project.tags.take(2).map((tag) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: cs.onSurface.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            tag,
+                            style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
+                          ),
+                        )).toList(),
+                      ),
+                    ],
+                    // Tech stack pills (show on hover)
+                    if (_isHovered && widget.stack.all.length > 1) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 3,
+                        children: widget.stack.all.map((t) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: t.color.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            t.label,
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: t.color),
+                          ),
+                        )).toList(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Activity badge (top center)
+              if (widget.activityBadge != null)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: widget.badgeColor?.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: widget.badgeColor?.withValues(alpha: 0.4) ?? Colors.transparent),
+                      ),
+                      child: Text(
+                        widget.activityBadge!,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                          color: widget.badgeColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Pin indicator
+              if (widget.project.isPinned && widget.activityBadge != 'PINNED')
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                ),
+
+              // Hover actions (bottom)
+              if (_isHovered)
+                Positioned(
+                  bottom: 8,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _GridAction(icon: Icons.terminal_rounded, tooltip: 'Terminal', onTap: widget.onOpenTerminal),
+                      const SizedBox(width: 4),
+                      _GridAction(icon: Icons.code_rounded, tooltip: 'VS Code', onTap: widget.onOpenVSCode),
+                      const SizedBox(width: 4),
+                      _GridAction(
+                        icon: Icons.folder_open_rounded,
+                        tooltip: 'Finder',
+                        onTap: () => LauncherService.openInFinder(widget.project.path),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GridAction extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _GridAction({required this.icon, required this.tooltip, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.2)),
+          ),
+          child: Icon(icon, size: 14, color: cs.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncingPill extends StatefulWidget {
+  final int progress;
+  final int total;
+
+  const _SyncingPill({required this.progress, required this.total});
+
+  @override
+  State<_SyncingPill> createState() => _SyncingPillState();
+}
+
+class _SyncingPillState extends State<_SyncingPill>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final label = widget.total > 0
+        ? 'Syncing ${widget.progress}/${widget.total}'
+        : 'Syncing...';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          RotationTransition(
+            turns: _controller,
+            child: const Icon(Icons.sync_rounded, size: 13, color: AppColors.accent),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTypography.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.accent,
             ),
           ),
         ],
@@ -944,18 +1992,58 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _TrafficLight extends StatelessWidget {
-  final Color color;
-  const _TrafficLight({required this.color});
+class _HeaderButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final Color? accentColor;
+
+  const _HeaderButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.accentColor,
+  });
+
+  @override
+  State<_HeaderButton> createState() => _HeaderButtonState();
+}
+
+class _HeaderButtonState extends State<_HeaderButton> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 12,
-      height: 12,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
+    final cs = Theme.of(context).colorScheme;
+    final color = widget.accentColor ?? cs.onSurfaceVariant;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: Tooltip(
+        message: widget.tooltip,
+        waitDuration: const Duration(milliseconds: 400),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 34,
+            height: 34,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: _hovered
+                  ? (widget.accentColor ?? cs.onSurface).withValues(alpha: 0.1)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Icon(
+              widget.icon,
+              size: 18,
+              color: _hovered ? (widget.accentColor ?? cs.onSurface) : color.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -979,6 +2067,8 @@ class _ScanDialogState extends State<_ScanDialog> {
   ScanResult? _result;
   final _customPathController = TextEditingController();
   final Stopwatch _stopwatch = Stopwatch();
+  int _scanDepth = 3;
+  bool _infiniteDepth = false;
 
   @override
   void dispose() {
@@ -996,6 +2086,7 @@ class _ScanDialogState extends State<_ScanDialog> {
     _stopwatch.start();
 
     final result = await ProjectScanner.scanAndAddProjects(
+      maxDepth: _infiniteDepth ? null : _scanDepth,
       onProgress: (path) {
         if (mounted) {
           setState(() {
@@ -1039,7 +2130,7 @@ class _ScanDialogState extends State<_ScanDialog> {
       _currentPath = path;
     });
 
-    final result = await ProjectScanner.scanCustomPath(path);
+    final result = await ProjectScanner.scanCustomPath(path, maxDepth: _infiniteDepth ? null : _scanDepth);
 
     if (mounted) {
       setState(() {
@@ -1101,7 +2192,7 @@ class _ScanDialogState extends State<_ScanDialog> {
 
   Widget _buildStartView(ColorScheme cs) {
     final scanPaths = ProjectScanner.getScanPaths();
-    final home = Platform.environment['HOME'] ?? '';
+    final home = PlatformHelper.homeDir;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1207,7 +2298,69 @@ class _ScanDialogState extends State<_ScanDialog> {
           children: [
             Text('Scan Depth', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurface)),
             const Spacer(),
-            Text('2 Levels', style: AppTypography.mono(fontSize: 13, color: AppColors.accent)),
+            if (!_infiniteDepth) ...[
+              IconButton(
+                onPressed: _scanDepth > 1 ? () => setState(() => _scanDepth--) : null,
+                icon: const Icon(Icons.remove, size: 16),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(32, 32),
+                  maximumSize: const Size(32, 32),
+                  padding: EdgeInsets.zero,
+                  foregroundColor: cs.onSurface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  '$_scanDepth',
+                  style: AppTypography.mono(fontSize: 14, color: AppColors.accent),
+                ),
+              ),
+              IconButton(
+                onPressed: _scanDepth < 20 ? () => setState(() => _scanDepth++) : null,
+                icon: const Icon(Icons.add, size: 16),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(32, 32),
+                  maximumSize: const Size(32, 32),
+                  padding: EdgeInsets.zero,
+                  foregroundColor: cs.onSurface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: cs.outline.withValues(alpha: 0.3)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ] else
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Text('∞', style: AppTypography.mono(fontSize: 18, color: AppColors.accent)),
+              ),
+            GestureDetector(
+              onTap: () => setState(() => _infiniteDepth = !_infiniteDepth),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _infiniteDepth ? AppColors.accent.withValues(alpha: 0.15) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _infiniteDepth ? AppColors.accent : cs.outline.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Text(
+                  'Infinite',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _infiniteDepth ? AppColors.accent : cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 20),
@@ -1230,7 +2383,7 @@ class _ScanDialogState extends State<_ScanDialog> {
   }
 
   Widget _buildScanningView(ColorScheme cs) {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = PlatformHelper.homeDir;
     final elapsed = _stopwatch.elapsed;
     final elapsedStr = '${elapsed.inMinutes}:${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}s';
 
