@@ -52,3 +52,7 @@ app.*.map.json
 .env.*
 macos/Frameworks/*.dylib
 rust/target/
+cli/target/
+**/node_modules/
+.gstack/
+.claude/
