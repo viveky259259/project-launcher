@@ -9,7 +9,11 @@ import '../services/project_storage.dart';
 import '../services/project_type_detector.dart';
 import '../services/ai_service.dart';
 import '../services/app_logger.dart';
+import '../services/release_service.dart';
+import '../services/compliance_service.dart';
+import '../services/version_detector.dart';
 import '../models/ai_insight.dart';
+import '../models/release_info.dart';
 import '../theme/app_theme.dart';
 
 class ProjectSettingsScreen extends StatefulWidget {
@@ -67,6 +71,19 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   final _outputScrollController = ScrollController();
   final _customPromptController = TextEditingController();
 
+  // Release data
+  ReleaseInfo? _releaseInfo;
+  ReadinessScore? _readinessScore;
+  DeploymentConfig? _deploymentConfig;
+  bool _releaseLoaded = false;
+  bool _bumpingVersion = false;
+  bool _creatingTag = false;
+
+  // Compliance data
+  ComplianceReport? _complianceReport;
+  bool _complianceLoaded = false;
+  bool _runningAudit = false;
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +96,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
 
     _loadOverviewData();
     _loadAIData();
+    _loadReleaseData();
   }
 
   Future<void> _loadOverviewData() async {
@@ -126,6 +144,32 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
         _platforms = platforms;
         _projectFiles = files;
         _overviewLoaded = true;
+      });
+    }
+  }
+
+  Future<void> _loadReleaseData() async {
+    final info = await VersionDetector.detect(widget.project.path);
+    final score = await ReleaseService.getReadinessScore(widget.project.path);
+    final deploy = ReleaseService.detectDeploymentConfig(widget.project.path);
+    if (mounted) {
+      setState(() {
+        _releaseInfo = info;
+        _readinessScore = score;
+        _deploymentConfig = deploy;
+        _releaseLoaded = true;
+      });
+    }
+  }
+
+  Future<void> _loadComplianceData() async {
+    setState(() => _runningAudit = true);
+    final report = await ComplianceService.audit(widget.project.path);
+    if (mounted) {
+      setState(() {
+        _complianceReport = report;
+        _complianceLoaded = true;
+        _runningAudit = false;
       });
     }
   }
@@ -416,6 +460,18 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                   icon: Icons.auto_awesome_rounded,
                   isActive: _activeSection == 'ai',
                   onTap: () => setState(() => _activeSection = 'ai'),
+                ),
+                _NavItem(
+                  label: 'Release',
+                  icon: Icons.rocket_launch_rounded,
+                  isActive: _activeSection == 'release',
+                  onTap: () => setState(() => _activeSection = 'release'),
+                ),
+                _NavItem(
+                  label: 'Compliance',
+                  icon: Icons.verified_user_rounded,
+                  isActive: _activeSection == 'compliance',
+                  onTap: () => setState(() => _activeSection = 'compliance'),
                 ),
                 _NavItem(
                   label: 'Danger Zone',
@@ -725,6 +781,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
         return _buildEnvironmentSection(cs);
       case 'ai':
         return _buildAIInsightsSection(cs);
+      case 'release':
+        return _buildReleaseSection(cs);
+      case 'compliance':
+        return _buildComplianceSection(cs);
       case 'danger':
         return _buildDangerSection(cs);
       default:
@@ -1403,6 +1463,391 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       ),
       const SizedBox(height: 16),
     ];
+  }
+
+  Widget _buildReleaseSection(ColorScheme cs) {
+    if (!_releaseLoaded) {
+      return const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(strokeWidth: 2)));
+    }
+
+    final info = _releaseInfo!;
+    final score = _readinessScore!;
+    final deploy = _deploymentConfig!;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header with readiness score
+        Row(
+          children: [
+            Text('Release', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: (score.total >= 80 ? AppColors.success : score.total >= 50 ? AppColors.warning : AppColors.error).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+              ),
+              child: Text(
+                '${score.total}/100',
+                style: AppTypography.mono(fontSize: 13, fontWeight: FontWeight.w700, color: score.total >= 80 ? AppColors.success : score.total >= 50 ? AppColors.warning : AppColors.error),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Version + Tag info
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.tag_rounded, size: 18, color: AppColors.accent),
+                  const SizedBox(width: 8),
+                  Text(
+                    info.version != null ? 'v${info.version}' : 'No version detected',
+                    style: AppTypography.mono(fontSize: 18, fontWeight: FontWeight.w700, color: cs.onSurface),
+                  ),
+                  if (info.versionSource != null) ...[
+                    const SizedBox(width: 8),
+                    Text('from ${info.versionSource}', style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant)),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (info.lastTag != null) ...[
+                    Text('Last tag: ${info.lastTag}', style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant)),
+                    if (info.unreleasedCommits > 0)
+                      Text(' (+${info.unreleasedCommits} unreleased)', style: AppTypography.inter(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.warning)),
+                  ] else
+                    Text('No tags yet', style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant)),
+                  const Spacer(),
+                  if (info.isDeployable && info.deployTargets.isNotEmpty)
+                    ...info.deployTargets.map((t) => Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Text(t, style: AppTypography.mono(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.accent)),
+                      ),
+                    )),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Readiness score breakdown
+        Text('Readiness Breakdown', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+        const SizedBox(height: 8),
+        // Score bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: score.total / 100,
+            backgroundColor: cs.outline.withValues(alpha: 0.1),
+            color: score.total >= 80 ? AppColors.success : score.total >= 50 ? AppColors.warning : AppColors.error,
+            minHeight: 8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Individual items
+        ...score.items.map((item) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            children: [
+              Icon(
+                item.passed ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                size: 16,
+                color: item.passed ? AppColors.success : cs.onSurfaceVariant.withValues(alpha: 0.3),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(item.label, style: AppTypography.inter(fontSize: 12, color: cs.onSurface)),
+              ),
+              Text(
+                '${item.points}/${item.maxPoints}',
+                style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
+              ),
+              if (item.detail != null) ...[
+                const SizedBox(width: 8),
+                Text(item.detail!, style: AppTypography.inter(fontSize: 11, color: cs.onSurfaceVariant), overflow: TextOverflow.ellipsis),
+              ],
+            ],
+          ),
+        )),
+        const SizedBox(height: 20),
+
+        // CI/CD info
+        if (deploy.ciProvider != null || deploy.buildTools.isNotEmpty || deploy.containerFiles.isNotEmpty) ...[
+          Text('Build & Deploy', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (deploy.ciProvider != null)
+                _infoBadge(deploy.ciProvider!, Icons.play_circle_outline_rounded, cs),
+              ...deploy.buildTools.map((t) => _infoBadge(t, Icons.build_rounded, cs)),
+              ...deploy.containerFiles.map((f) => _infoBadge(f, Icons.view_in_ar_rounded, cs)),
+            ],
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // Action buttons
+        if (info.version != null) ...[
+          Text('Actions', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _releaseAction('Bump Patch', Icons.arrow_upward_rounded, _bumpingVersion ? null : () => _bumpVersionAction('patch'), cs),
+              _releaseAction('Bump Minor', Icons.arrow_upward_rounded, _bumpingVersion ? null : () => _bumpVersionAction('minor'), cs),
+              _releaseAction('Bump Major', Icons.arrow_upward_rounded, _bumpingVersion ? null : () => _bumpVersionAction('major'), cs),
+              _releaseAction('Tag & Push', Icons.local_offer_rounded, _creatingTag ? null : _tagAndPush, cs),
+              _releaseAction('GitHub Release', Icons.rocket_launch_rounded, _creatingTag ? null : _createGitHubRelease, cs),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _infoBadge(String label, IconData icon, ColorScheme cs) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: cs.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(label, style: AppTypography.inter(fontSize: 12, color: cs.onSurface)),
+        ],
+      ),
+    );
+  }
+
+  Widget _releaseAction(String label, IconData icon, VoidCallback? onPressed, ColorScheme cs) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: cs.onSurface,
+        side: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+        textStyle: AppTypography.inter(fontSize: 12, fontWeight: FontWeight.w500),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+      ),
+    );
+  }
+
+  Future<void> _bumpVersionAction(String level) async {
+    setState(() => _bumpingVersion = true);
+    final newVersion = await ReleaseService.bumpVersion(widget.project.path, level);
+    if (mounted) {
+      setState(() => _bumpingVersion = false);
+      if (newVersion != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Version bumped to $newVersion'), behavior: SnackBarBehavior.floating));
+        _loadReleaseData();
+      }
+    }
+  }
+
+  Future<void> _tagAndPush() async {
+    if (_releaseInfo?.version == null) return;
+    setState(() => _creatingTag = true);
+    final tagged = await ReleaseService.createTag(widget.project.path, _releaseInfo!.version!);
+    if (tagged) await ReleaseService.pushTags(widget.project.path);
+    if (mounted) {
+      setState(() => _creatingTag = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(tagged ? 'Tagged v${_releaseInfo!.version} and pushed' : 'Failed to create tag'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      _loadReleaseData();
+    }
+  }
+
+  Future<void> _createGitHubRelease() async {
+    if (_releaseInfo?.version == null) return;
+    setState(() => _creatingTag = true);
+    final url = await ReleaseService.createGitHubRelease(widget.project.path, _releaseInfo!.version!);
+    if (mounted) {
+      setState(() => _creatingTag = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(url != null ? 'GitHub release created' : 'Failed to create release (is gh CLI installed?)'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      _loadReleaseData();
+    }
+  }
+
+  Widget _buildComplianceSection(ColorScheme cs) {
+    if (!_complianceLoaded) {
+      // Auto-trigger on first view
+      if (!_runningAudit) _loadComplianceData();
+      return const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(strokeWidth: 2)));
+    }
+
+    final report = _complianceReport!;
+    final scoreColor = report.score >= 80 ? AppColors.success : report.score >= 50 ? AppColors.warning : AppColors.error;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Row(
+          children: [
+            Text('Compliance', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: scoreColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+              ),
+              child: Text('${report.score}/100', style: AppTypography.mono(fontSize: 13, fontWeight: FontWeight.w700, color: scoreColor)),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              tooltip: 'Re-audit',
+              onPressed: _runningAudit ? null : () {
+                setState(() => _complianceLoaded = false);
+                _loadComplianceData();
+              },
+            ),
+          ],
+        ),
+        if (report.licenseType != null) ...[
+          const SizedBox(height: 4),
+          Text('License: ${report.licenseType}', style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant)),
+        ],
+        const SizedBox(height: 16),
+
+        // Compliance items
+        ...report.items.map((item) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: _complianceStatusColor(item.status).withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                Icon(_complianceStatusIcon(item.status), size: 18, color: _complianceStatusColor(item.status)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.title, style: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w500, color: cs.onSurface)),
+                      if (item.detail != null)
+                        Text(item.detail!, style: AppTypography.inter(fontSize: 11, color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                Text(
+                  item.status.name.toUpperCase(),
+                  style: AppTypography.mono(fontSize: 10, fontWeight: FontWeight.w700, color: _complianceStatusColor(item.status)),
+                ),
+              ],
+            ),
+          ),
+        )),
+
+        // Secrets section
+        if (report.secrets.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('Potential Secrets (${report.secrets.length})', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.error)),
+          const SizedBox(height: 8),
+          ...report.secrets.take(10).map((s) => Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              '${s.file}:${s.line} — ${s.pattern}',
+              style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
+            ),
+          )),
+        ],
+
+        // SBOM summary
+        if (report.sbom.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('SBOM (${report.sbom.length} dependencies)', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+          const SizedBox(height: 8),
+          Text('Dependencies cataloged from ${report.sbom.map((s) => s.source).toSet().join(', ')}', style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant)),
+        ],
+
+        // AI audit button
+        const SizedBox(height: 20),
+        OutlinedButton.icon(
+          onPressed: _runningAudit ? null : () async {
+            setState(() => _runningAudit = true);
+            final result = await ComplianceService.aiAudit(widget.project.path);
+            if (mounted) {
+              setState(() {
+                _runningAudit = false;
+                if (result != null) {
+                  _outputPanelOpen = true;
+                  _viewingInsightSkill = 'compliance-audit';
+                  _streamedOutput = result;
+                }
+              });
+            }
+          },
+          icon: Icon(Icons.auto_awesome_rounded, size: 16),
+          label: Text(_runningAudit ? 'Running AI audit...' : 'Run AI Compliance Audit'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.accent,
+            side: BorderSide(color: AppColors.accent.withValues(alpha: 0.3)),
+            textStyle: AppTypography.inter(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _complianceStatusColor(ComplianceStatus status) {
+    switch (status) {
+      case ComplianceStatus.pass: return AppColors.success;
+      case ComplianceStatus.warn: return AppColors.warning;
+      case ComplianceStatus.fail: return AppColors.error;
+      case ComplianceStatus.skip: return const Color(0xFF6B7280);
+    }
+  }
+
+  IconData _complianceStatusIcon(ComplianceStatus status) {
+    switch (status) {
+      case ComplianceStatus.pass: return Icons.check_circle_rounded;
+      case ComplianceStatus.warn: return Icons.warning_amber_rounded;
+      case ComplianceStatus.fail: return Icons.cancel_rounded;
+      case ComplianceStatus.skip: return Icons.remove_circle_outline_rounded;
+    }
   }
 
   Widget _buildDangerSection(ColorScheme cs) {

@@ -105,7 +105,31 @@ class GitService {
     return getCommitCount(repoPath, since: since, until: to, author: author);
   }
 
+  /// Get all tags, sorted by date (newest first).
+  static Future<List<String>> getTags(String repoPath) async {
+    try {
+      final result = await Process.run(
+        'git', ['tag', '--sort=-creatordate'],
+        workingDirectory: repoPath,
+      );
+      if (result.exitCode == 0) {
+        return result.stdout.toString().trim().split('\n').where((t) => t.isNotEmpty).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
 
+  /// Get the latest tag.
+  static Future<String?> getLastTag(String repoPath) async {
+    try {
+      final result = await Process.run(
+        'git', ['describe', '--tags', '--abbrev=0'],
+        workingDirectory: repoPath,
+      );
+      if (result.exitCode == 0) return result.stdout.toString().trim();
+    } catch (_) {}
+    return null;
+  }
 
   /// Get the remote URL (origin) for a repository
   static Future<String?> getRemoteUrl(String repoPath) async {
