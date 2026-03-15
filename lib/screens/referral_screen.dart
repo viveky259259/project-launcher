@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/referral.dart';
+import '../services/platform_helper.dart';
 import '../services/referral_service.dart';
 import '../services/premium_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sidebar.dart';
 import 'health_screen.dart';
+import 'insights_screen.dart';
 import 'year_review_screen.dart';
 import 'subscription_screen.dart';
+import 'team_screen.dart';
 
 class ReferralScreen extends StatefulWidget {
   const ReferralScreen({super.key});
@@ -62,6 +65,31 @@ class _ReferralScreenState extends State<ReferralScreen> {
         const SnackBar(
           content: Text('Referral code copied to clipboard!'),
           behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _shareCode() async {
+    if (_referralData == null) return;
+
+    final message = 'I use Project Launcher to manage all my dev projects in one place. '
+        'Try it out and use my referral code: ${_referralData!.myCode}\n\n'
+        'https://projectlauncher.dev';
+
+    await Clipboard.setData(ClipboardData(text: message));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Share message copied! Paste it anywhere.'),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Open Twitter',
+            onPressed: () => PlatformHelper.openUrl(
+              'https://twitter.com/intent/tweet?text=${Uri.encodeComponent(message)}',
+            ),
+          ),
         ),
       );
     }
@@ -122,6 +150,14 @@ class _ReferralScreenState extends State<ReferralScreen> {
               } else if (route == 'health') {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const HealthScreen()),
+                );
+              } else if (route == 'insights') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const InsightsScreen()),
+                );
+              } else if (route == 'team') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const TeamScreen()),
                 );
               } else if (route == 'year_review') {
                 Navigator.of(context).push(
@@ -207,6 +243,10 @@ class _ReferralScreenState extends State<ReferralScreen> {
                   code: _referralData?.myCode ?? '',
                   referralCount: _referralData?.referralCount ?? 0,
                   onCopy: _copyCode,
+                  onShare: _shareCode,
+                  nextReward: _rewardStatuses.where((s) => !s.isUnlocked).isEmpty
+                      ? null
+                      : _rewardStatuses.firstWhere((s) => !s.isUnlocked),
                 ),
                 const SizedBox(height: 32),
 
@@ -299,11 +339,15 @@ class _ReferralCodeCard extends StatelessWidget {
   final String code;
   final int referralCount;
   final VoidCallback onCopy;
+  final VoidCallback onShare;
+  final RewardStatus? nextReward;
 
   const _ReferralCodeCard({
     required this.code,
     required this.referralCount,
     required this.onCopy,
+    required this.onShare,
+    this.nextReward,
   });
 
   @override
@@ -313,7 +357,14 @@ class _ReferralCodeCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: cs.surface,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.accent.withValues(alpha: 0.08),
+            cs.surface,
+          ],
+        ),
         borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
         boxShadow: [
@@ -329,36 +380,38 @@ class _ReferralCodeCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: AppColors.accent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const Icon(Icons.card_giftcard_rounded, color: AppColors.accent, size: 20),
+                child: const Icon(Icons.card_giftcard_rounded, color: AppColors.accent, size: 22),
               ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'REFERRAL CODE',
-                    style: AppTypography.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: cs.onSurfaceVariant,
-                      letterSpacing: 1.5,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'YOUR REFERRAL CODE',
+                      style: AppTypography.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurfaceVariant,
+                        letterSpacing: 1.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$referralCount referral${referralCount == 1 ? '' : 's'}',
-                    style: AppTypography.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.accent,
+                    const SizedBox(height: 2),
+                    Text(
+                      '$referralCount referral${referralCount == 1 ? '' : 's'} so far',
+                      style: AppTypography.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.accent,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -383,7 +436,7 @@ class _ReferralCodeCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               IconButton(
                 onPressed: onCopy,
                 icon: const Icon(Icons.copy_rounded, size: 18),
@@ -398,15 +451,75 @@ class _ReferralCodeCard extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                 ),
               ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: onShare,
+                icon: const Icon(Icons.share_rounded, size: 18),
+                tooltip: 'Share with message',
+                style: IconButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: AppColors.accent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                  ),
+                  padding: const EdgeInsets.all(12),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            'Share this code with friends to earn rewards!',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: cs.onSurfaceVariant,
+          // Next reward progress
+          if (nextReward != null) ...[
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: cs.surface.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.emoji_events_rounded, size: 18,
+                    color: AppColors.accent.withValues(alpha: 0.7)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Next: ${nextReward!.reward.name}',
+                          style: AppTypography.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: nextReward!.progress,
+                            backgroundColor: cs.outline.withValues(alpha: 0.15),
+                            color: AppColors.accent,
+                            minHeight: 4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${nextReward!.referralsNeeded} more',
+                    style: AppTypography.mono(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -531,6 +644,12 @@ class _RewardCard extends StatelessWidget {
 
   LinearGradient _getThemeGradient(ReferralReward reward) {
     switch (reward) {
+      case ReferralReward.earlyBirdBadge:
+        return const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF22c55e), Color(0xFF16a34a)],
+        );
       case ReferralReward.darkThemeMidnight:
         return const LinearGradient(
           begin: Alignment.topLeft,
@@ -542,6 +661,12 @@ class _RewardCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [Color(0xFF0077B6), Color(0xFF023E8A)],
+        );
+      case ReferralReward.customAccentColor:
+        return const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFec4899), Color(0xFF8b5cf6)],
         );
       case ReferralReward.founderBadge:
         return const LinearGradient(

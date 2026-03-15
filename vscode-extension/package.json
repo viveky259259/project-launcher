@@ -1,0 +1,116 @@
+{
+  "name": "project-launcher",
+  "displayName": "Project Launcher",
+  "description": "Your project dashboard in VS Code — health scores, git status, instant launch",
+  "version": "0.1.0",
+  "publisher": "stringswaytech",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["project", "dashboard", "health", "git", "launcher"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "project-launcher",
+          "title": "Project Launcher",
+          "icon": "$(rocket)"
+        }
+      ]
+    },
+    "views": {
+      "project-launcher": [
+        {
+          "id": "projectLauncher.projects",
+          "name": "Projects"
+        },
+        {
+          "id": "projectLauncher.health",
+          "name": "Health Summary"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "projectLauncher.refresh",
+        "title": "Refresh Projects",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "projectLauncher.openInTerminal",
+        "title": "Open in Terminal",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "projectLauncher.openInVSCode",
+        "title": "Open in VS Code",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "projectLauncher.openInFinder",
+        "title": "Open in Finder",
+        "icon": "$(file-directory)"
+      },
+      {
+        "command": "projectLauncher.copyPath",
+        "title": "Copy Path",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "projectLauncher.openApp",
+        "title": "Open Project Launcher App",
+        "icon": "$(rocket)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "projectLauncher.refresh",
+          "when": "view == projectLauncher.projects",
+          "group": "navigation"
+        },
+        {
+          "command": "projectLauncher.openApp",
+          "when": "view == projectLauncher.projects",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "projectLauncher.openInVSCode",
+          "when": "view == projectLauncher.projects",
+          "group": "inline"
+        },
+        {
+          "command": "projectLauncher.openInTerminal",
+          "when": "view == projectLauncher.projects",
+          "group": "1_open"
+        },
+        {
+          "command": "projectLauncher.openInFinder",
+          "when": "view == projectLauncher.projects",
+          "group": "1_open"
+        },
+        {
+          "command": "projectLauncher.copyPath",
+          "when": "view == projectLauncher.projects",
+          "group": "2_copy"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}

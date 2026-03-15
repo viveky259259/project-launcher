@@ -215,15 +215,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: (_status.isTrial ? AppColors.warning : AppColors.success).withValues(alpha: 0.15),
+                            color: (_status.isTrial ? AppColors.warning : _status.isPromo ? AppColors.accent : AppColors.success).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(AppRadius.full),
                           ),
                           child: Text(
-                            _status.isTrial ? 'TRIAL' : 'ACTIVE',
+                            _status.isTrial ? 'TRIAL' : _status.isPromo ? 'PROMO' : 'ACTIVE',
                             style: AppTypography.inter(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: _status.isTrial ? AppColors.warning : AppColors.success,
+                              color: _status.isTrial ? AppColors.warning : _status.isPromo ? AppColors.accent : AppColors.success,
                             ),
                           ),
                         ),
@@ -246,6 +246,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   String _subscriptionSubtitle() {
     if (_status.isLifetime) return 'Lifetime access — never expires';
+    if (_status.isPromo && _status.daysRemaining != null) {
+      return 'Promo active — ${_status.daysRemaining} days remaining';
+    }
     if (_status.expirationDate != null) {
       final dateStr = _formatDate(_status.expirationDate!);
       if (_status.willRenew == true) return 'Auto-renews on $dateStr';
@@ -351,21 +354,38 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   valueColor: AppColors.warning,
                 ),
               ],
+              if (_status.isPromo && _status.daysRemaining != null) ...[
+                _billingDivider(cs),
+                _billingRow(
+                  cs,
+                  'Promo remaining',
+                  '${_status.daysRemaining} day${_status.daysRemaining == 1 ? '' : 's'}',
+                  valueColor: AppColors.accent,
+                ),
+              ],
+              if (_status.isPromo && _status.productIdentifier != null) ...[
+                _billingDivider(cs),
+                _billingRow(cs, 'Promo code', _status.productIdentifier!),
+              ],
               _billingDivider(cs),
               _billingRow(
                 cs,
                 'Status',
-                _status.isTrial
-                    ? 'Free trial'
-                    : _status.willRenew == true
-                        ? 'Auto-renewing'
-                        : _status.isLifetime
-                            ? 'Lifetime'
-                            : 'Not renewing',
-                valueColor: _status.willRenew == true || _status.isLifetime ? AppColors.success : AppColors.warning,
+                _status.isPromo
+                    ? 'Promo active'
+                    : _status.isTrial
+                        ? 'Free trial'
+                        : _status.willRenew == true
+                            ? 'Auto-renewing'
+                            : _status.isLifetime
+                                ? 'Lifetime'
+                                : 'Not renewing',
+                valueColor: _status.willRenew == true || _status.isLifetime || _status.isPromo ? AppColors.success : AppColors.warning,
               ),
-              _billingDivider(cs),
-              _billingRow(cs, 'Payment', 'Paddle'),
+              if (!_status.isPromo) ...[
+                _billingDivider(cs),
+                _billingRow(cs, 'Payment', 'Paddle'),
+              ],
             ],
           ),
         ),
@@ -590,6 +610,106 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
+  void _showPromoCodeDialog() {
+    final cs = Theme.of(context).colorScheme;
+    final codeController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.card_giftcard_rounded, color: AppColors.accent, size: 22),
+            const SizedBox(width: 8),
+            const Text('Redeem Promo Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter your promo code to unlock Pro features for free.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: codeController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                hintText: 'e.g. LAUNCH6M',
+                hintStyle: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                prefixIcon: Icon(Icons.confirmation_number_outlined, color: AppColors.accent, size: 20),
+                filled: true,
+                fillColor: cs.surfaceContainerHighest,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.accent, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+              style: AppTypography.mono(fontSize: 16, color: cs.onSurface),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Cancel', style: TextStyle(color: cs.onSurfaceVariant)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final code = codeController.text.trim();
+              if (code.isEmpty) return;
+              Navigator.of(ctx).pop();
+
+              setState(() => _isProcessing = true);
+              final result = await PremiumService.redeemPromoCode(code);
+              if (mounted) {
+                setState(() => _isProcessing = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        Icon(
+                          result.success ? Icons.check_circle : Icons.error_outline,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(result.message)),
+                      ],
+                    ),
+                    backgroundColor: result.success ? AppColors.success : AppColors.error,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                );
+                if (result.success) {
+                  widget.onStatusChanged?.call();
+                  _loadData();
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: const Text('Redeem', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFreeView(ColorScheme cs) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -603,14 +723,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         const SizedBox(height: 16),
         _buildPricingCards(cs),
         const SizedBox(height: 16),
-        Center(
-          child: TextButton(
-            onPressed: _showRestoreDialog,
-            child: Text(
-              'Already subscribed? Restore Purchases',
-              style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton(
+              onPressed: _showRestoreDialog,
+              child: Text(
+                'Restore Purchases',
+                style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
             ),
-          ),
+            Text('·', style: TextStyle(color: cs.onSurfaceVariant)),
+            TextButton(
+              onPressed: _showPromoCodeDialog,
+              child: Text(
+                'Have a Promo Code?',
+                style: AppTypography.inter(fontSize: 12, color: AppColors.accent),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 32),
         _buildFeatureComparison(cs),

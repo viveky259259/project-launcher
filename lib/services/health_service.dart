@@ -1,19 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
 import '../models/health_score.dart';
+import 'app_logger.dart';
 import 'git_service.dart';
+import 'platform_helper.dart';
 
 class HealthService {
+  static const _tag = 'Health';
   static const String _cacheFileName = 'health_cache.json';
 
   static String get _cacheFilePath {
-    final home = Platform.environment['HOME'] ?? '';
-    return '$home/.project_launcher/$_cacheFileName';
+    return '${PlatformHelper.dataDir}${Platform.pathSeparator}$_cacheFileName';
   }
 
   static Future<void> _ensureDirectoryExists() async {
-    final home = Platform.environment['HOME'] ?? '';
-    final dir = Directory('$home/.project_launcher');
+    final dir = Directory(PlatformHelper.dataDir);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -181,7 +182,7 @@ class HealthService {
         try {
           await for (final entity in testDir.list(recursive: true)) {
             if (entity is File) {
-              final name = entity.path.split('/').last.toLowerCase();
+              final name = entity.path.split(Platform.pathSeparator).last.toLowerCase();
               if (name.contains('test') || name.contains('spec')) {
                 hasTestFiles = true;
                 testsScore += 15;
@@ -205,7 +206,7 @@ class HealthService {
           try {
             await for (final entity in srcDir.list(recursive: true)) {
               if (entity is File) {
-                final name = entity.path.split('/').last.toLowerCase();
+                final name = entity.path.split(Platform.pathSeparator).last.toLowerCase();
                 if (name.contains('_test.') || name.contains('.test.') || name.contains('_spec.')) {
                   hasTestFiles = true;
                   testsScore += 15;
@@ -277,11 +278,20 @@ class HealthService {
   }) async {
     final results = <String, CachedHealthScore>{};
 
+    AppLogger.info(_tag, 'Calculating health scores for ${projectPaths.length} projects');
+    final sw = Stopwatch()..start();
     for (var i = 0; i < projectPaths.length; i++) {
       final path = projectPaths[i];
-      results[path] = await getHealthScore(path);
+      try {
+        results[path] = await getHealthScore(path);
+      } catch (e) {
+        AppLogger.error(_tag, 'Failed health check for ${path.split('/').last}: $e');
+      }
       onProgress?.call(i + 1, projectPaths.length);
     }
+    sw.stop();
+    final healthy = results.values.where((s) => s.details.category == HealthCategory.healthy).length;
+    AppLogger.info(_tag, 'Health scores done in ${sw.elapsedMilliseconds}ms: $healthy/${results.length} healthy');
 
     return results;
   }

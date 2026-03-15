@@ -1,44 +1,31 @@
-import 'dart:io';
+import 'app_logger.dart';
+import 'platform_helper.dart';
 
 class LauncherService {
+  static const _tag = 'Launcher';
+
   static Future<void> openInTerminal(String path) async {
-    // Open Terminal.app at the specified path
-    await Process.run('open', ['-a', 'Terminal', path]);
+    AppLogger.info(_tag, 'Opening Terminal: ${path.split('/').last}');
+    await PlatformHelper.openInTerminal(path);
   }
 
   static Future<void> openInVSCode(String path) async {
-    // Try to open with 'code' command first, fallback to VS Code app
-    try {
-      final result = await Process.run('which', ['code']);
-      if (result.exitCode == 0) {
-        await Process.run('code', [path]);
-      } else {
-        await Process.run('open', ['-a', 'Visual Studio Code', path]);
-      }
-    } catch (e) {
-      // Fallback to opening VS Code app directly
-      await Process.run('open', ['-a', 'Visual Studio Code', path]);
-    }
-  }
-
-  static Future<void> openTerminal() async {
-    await Process.run('open', ['-a', 'Terminal']);
-  }
-
-  static Future<void> openVSCode() async {
-    try {
-      final result = await Process.run('which', ['code']);
-      if (result.exitCode == 0) {
-        await Process.run('code', []);
-      } else {
-        await Process.run('open', ['-a', 'Visual Studio Code']);
-      }
-    } catch (e) {
-      await Process.run('open', ['-a', 'Visual Studio Code']);
-    }
+    AppLogger.info(_tag, 'Opening VS Code: ${path.split('/').last}');
+    await PlatformHelper.openInVSCode(path);
   }
 
   static Future<void> openInFinder(String path) async {
-    await Process.run('open', [path]);
+    AppLogger.info(_tag, 'Opening Finder: ${path.split('/').last}');
+    await PlatformHelper.openInFileManager(path);
+  }
+
+  static Future<void> openTerminal() async {
+    AppLogger.info(_tag, 'Opening Terminal (home)');
+    await PlatformHelper.openInTerminal(PlatformHelper.homeDir);
+  }
+
+  static Future<void> openVSCode() async {
+    AppLogger.info(_tag, 'Opening VS Code (home)');
+    await PlatformHelper.openInVSCode(PlatformHelper.homeDir);
   }
 }

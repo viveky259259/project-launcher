@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'git_service.dart';
 import 'health_service.dart';
+import 'platform_helper.dart';
 import 'project_storage.dart';
 
 /// Aggregated stats for year-in-review feature
@@ -86,13 +87,11 @@ class StatsService {
   static const String _cacheFileName = 'stats_cache.json';
 
   static String get _cacheFilePath {
-    final home = Platform.environment['HOME'] ?? '';
-    return '$home/.project_launcher/$_cacheFileName';
+    return '${PlatformHelper.dataDir}${Platform.pathSeparator}$_cacheFileName';
   }
 
   static Future<void> _ensureDirectoryExists() async {
-    final home = Platform.environment['HOME'] ?? '';
-    final dir = Directory('$home/.project_launcher');
+    final dir = Directory(PlatformHelper.dataDir);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -127,13 +126,18 @@ class StatsService {
     }
   }
 
-  /// Generate year-in-review stats
+  /// Generate year-in-review stats for a date range.
+  /// Defaults to Jan 1 of current year → now.
   static Future<YearInReviewStats> generateStats({
     void Function(String currentProject, int current, int total)? onProgress,
     bool forceRefresh = false,
+    DateTime? from,
+    DateTime? to,
   }) async {
-    // Check cache first
-    if (!forceRefresh) {
+    final hasCustomRange = from != null || to != null;
+
+    // Check cache first (skip cache for custom ranges)
+    if (!forceRefresh && !hasCustomRange) {
       final cached = await loadCachedStats();
       if (cached != null) {
         // Cache valid for 1 hour
@@ -162,8 +166,13 @@ class StatsService {
       final isGitRepo = await GitService.isGitRepository(project.path);
       if (!isGitRepo) continue;
 
-      // Get yearly commit count
-      final yearlyCommits = await GitService.getYearlyCommitCount(project.path);
+      // Get commit count for the date range (only user's commits)
+      final yearlyCommits = await GitService.getYearlyCommitCount(
+        project.path,
+        from: from,
+        to: to,
+        authorOnly: true,
+      );
       totalCommits += yearlyCommits;
 
       if (yearlyCommits > 0) {
@@ -177,8 +186,13 @@ class StatsService {
         mostActiveProject = project.name;
       }
 
-      // Get monthly breakdown
-      final monthlyCommits = await GitService.getMonthlyCommitCounts(project.path);
+      // Get monthly breakdown (only user's commits)
+      final monthlyCommits = await GitService.getMonthlyCommitCounts(
+        project.path,
+        from: from,
+        to: to,
+        authorOnly: true,
+      );
       for (final entry in monthlyCommits.entries) {
         monthlyActivity[entry.key] = (monthlyActivity[entry.key] ?? 0) + entry.value;
       }
@@ -225,7 +239,10 @@ class StatsService {
       longestStreak: estimatedStreak,
     );
 
-    await saveCachedStats(stats);
+    // Only cache default range (no custom from/to)
+    if (!hasCustomRange) {
+      await saveCachedStats(stats);
+    }
     return stats;
   }
 
@@ -261,22 +278,27 @@ class StatsService {
 
   /// Get stats summary text for sharing
   static String getShareableText(YearInReviewStats stats) {
+    final year = stats.generatedAt.year;
     final lines = <String>[
-      'My Project Launcher Year in Review',
+      'My $year Code Wrapped',
       '',
-      '${stats.totalProjects} projects managed',
-      '${stats.totalCommits} commits this year',
-      '${stats.activeProjectsCount} active projects',
+      '${stats.totalCommits} commits across ${stats.totalProjects} projects',
+      '${stats.activeProjectsCount} active | ${stats.estimatedCodingHours}h coding | ${stats.longestStreak}-day streak',
     ];
 
     if (stats.mostActiveProject != null) {
       lines.add('');
-      lines.add('Most active: ${stats.mostActiveProject}');
-      lines.add('${stats.mostActiveProjectCommits} commits');
+      lines.add('Most active: ${stats.mostActiveProject} (${stats.mostActiveProjectCommits} commits)');
+    }
+
+    if (stats.languageDistribution.isNotEmpty) {
+      final sorted = stats.languageDistribution.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      lines.add('Top language: ${sorted.first.key}');
     }
 
     lines.add('');
-    lines.add('Tracked with Project Launcher');
+    lines.add('Made with Project Launcher');
 
     return lines.join('\n');
   }

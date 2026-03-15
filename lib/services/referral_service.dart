@@ -2,18 +2,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import '../models/referral.dart';
+import 'platform_helper.dart';
 
 class ReferralService {
   static const String _fileName = 'referrals.json';
 
   static String get _filePath {
-    final home = Platform.environment['HOME'] ?? '';
-    return '$home/.project_launcher/$_fileName';
+    return '${PlatformHelper.dataDir}${Platform.pathSeparator}$_fileName';
   }
 
   static Future<void> _ensureDirectoryExists() async {
-    final home = Platform.environment['HOME'] ?? '';
-    final dir = Directory('$home/.project_launcher');
+    final dir = Directory(PlatformHelper.dataDir);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

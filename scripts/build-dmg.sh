@@ -25,6 +25,16 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
+# Bundle Rust native library (FFI)
+DYLIB_PATH="$PROJECT_DIR/rust/target/release/libproject_launcher_core.dylib"
+if [ -f "$DYLIB_PATH" ]; then
+    echo "Bundling Rust FFI library..."
+    mkdir -p "$APP_PATH/Contents/Frameworks"
+    cp "$DYLIB_PATH" "$APP_PATH/Contents/Frameworks/"
+else
+    echo "Warning: Rust FFI library not found at $DYLIB_PATH (falling back to Dart implementations)"
+fi
+
 # Create a temporary directory for DMG contents
 DMG_DIR="$PROJECT_DIR/build/dmg"
 rm -rf "$DMG_DIR"
@@ -138,7 +148,14 @@ hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_DIR" -ov -format UDZO "$OUT
 # Clean up
 rm -rf "$DMG_DIR"
 
+SHA256=$(shasum -a 256 "$OUTPUT_DMG" | awk '{print $1}')
+
 echo ""
 echo "=== Build Complete ==="
 echo "DMG: $OUTPUT_DMG"
 echo "Size: $(du -h "$OUTPUT_DMG" | cut -f1)"
+echo "SHA256: $SHA256"
+echo ""
+echo "Homebrew cask update:"
+echo "  version \"$VERSION\""
+echo "  sha256 \"$SHA256\""

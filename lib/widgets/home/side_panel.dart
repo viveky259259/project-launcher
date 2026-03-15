@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import 'filter_bar.dart';
 
 class HomeSidePanel extends StatelessWidget {
   final int totalProjects;
@@ -8,7 +9,9 @@ class HomeSidePanel extends StatelessWidget {
   final bool isPro;
   final VoidCallback onYearReviewTap;
   final VoidCallback onHealthTap;
+  final VoidCallback? onInsightsTap;
   final List<double> weeklyActivity;
+  final Map<ActivityFilter, int> activityCounts;
 
   const HomeSidePanel({
     super.key,
@@ -18,7 +21,9 @@ class HomeSidePanel extends StatelessWidget {
     required this.isPro,
     required this.onYearReviewTap,
     required this.onHealthTap,
+    this.onInsightsTap,
     this.weeklyActivity = const [0, 0, 0, 0, 0, 0, 0],
+    this.activityCounts = const {},
   });
 
   @override
@@ -115,6 +120,108 @@ class HomeSidePanel extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
+
+          // Activity breakdown
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Activity',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _ActivityRow(
+                  label: 'This Week',
+                  value: activityCounts[ActivityFilter.thisWeek] ?? 0,
+                  total: totalProjects,
+                  color: AppColors.success,
+                ),
+                const SizedBox(height: 8),
+                _ActivityRow(
+                  label: 'Last Week',
+                  value: activityCounts[ActivityFilter.lastWeek] ?? 0,
+                  total: totalProjects,
+                  color: AppColors.accent,
+                ),
+                const SizedBox(height: 8),
+                _ActivityRow(
+                  label: 'This Month',
+                  value: activityCounts[ActivityFilter.thisMonth] ?? 0,
+                  total: totalProjects,
+                  color: AppColors.warning,
+                ),
+                const SizedBox(height: 8),
+                _ActivityRow(
+                  label: 'Older',
+                  value: (activityCounts[ActivityFilter.lastMonth] ?? 0) + (activityCounts[ActivityFilter.older] ?? 0),
+                  total: totalProjects,
+                  color: const Color(0xFF6B7280),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // AI Insights card
+          if (onInsightsTap != null)
+            GestureDetector(
+              onTap: onInsightsTap,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      child: const Icon(Icons.auto_awesome_rounded, size: 18, color: AppColors.accent),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'AI Insights',
+                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            'Smart recommendations',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, size: 16, color: cs.onSurfaceVariant),
+                  ],
+                ),
+              ),
+            ),
+
+          if (onInsightsTap != null)
+            const SizedBox(height: 12),
 
           // Year in Review promo card
           GestureDetector(
@@ -238,6 +345,70 @@ class _MiniBarChart extends StatelessWidget {
           ),
         );
       }).toList(),
+    );
+  }
+}
+
+class _ActivityRow extends StatelessWidget {
+  final String label;
+  final int value;
+  final int total;
+  final Color color;
+
+  const _ActivityRow({
+    required this.label,
+    required this.value,
+    required this.total,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fraction = total > 0 ? (value / total).clamp(0.0, 1.0) : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '$value',
+              style: AppTypography.mono(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: value > 0 ? color : cs.onSurfaceVariant.withValues(alpha: 0.4),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        // Progress bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: SizedBox(
+            height: 3,
+            child: LinearProgressIndicator(
+              value: fraction,
+              backgroundColor: cs.outline.withValues(alpha: 0.1),
+              color: color.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -2,18 +2,20 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
 import '../models/project.dart';
+import 'app_logger.dart';
+import 'platform_helper.dart';
 
 class ProjectStorage {
+  static const _tag = 'Storage';
   static const String _fileName = 'projects.json';
+  static int _lastCount = -1;
 
   static String get _filePath {
-    final home = Platform.environment['HOME'] ?? '';
-    return '$home/.project_launcher/$_fileName';
+    return '${PlatformHelper.dataDir}${Platform.pathSeparator}$_fileName';
   }
 
   static Future<void> _ensureDirectoryExists() async {
-    final home = Platform.environment['HOME'] ?? '';
-    final dir = Directory('$home/.project_launcher');
+    final dir = Directory(PlatformHelper.dataDir);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -31,9 +33,15 @@ class ProjectStorage {
         return [];
       }
       final List<dynamic> jsonList = json.decode(content);
-      return jsonList.map((j) => Project.fromJson(j)).toList();
+      final projects = jsonList.map((j) => Project.fromJson(j)).toList();
+      if (_lastCount != projects.length) {
+        AppLogger.info(_tag, 'Loaded ${projects.length} projects');
+        _lastCount = projects.length;
+      }
+      return projects;
     } catch (e) {
       log('Error loading projects: $e');
+      AppLogger.error(_tag, 'Failed to load projects: $e');
       return [];
     }
   }
@@ -46,6 +54,7 @@ class ProjectStorage {
       await file.writeAsString(json.encode(jsonList));
     } catch (e) {
       log('Error saving projects: $e');
+      AppLogger.error(_tag, 'Failed to save projects: $e');
     }
   }
 

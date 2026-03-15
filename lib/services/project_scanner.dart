@@ -1,8 +1,11 @@
 import 'dart:io';
 import '../models/project.dart';
+import 'app_logger.dart';
+import 'platform_helper.dart';
 import 'project_storage.dart';
 
 class ProjectScanner {
+  static const _tag = 'Scanner';
   static const List<String> defaultScanPaths = [
     'Projects',
     'Developer',
@@ -21,12 +24,14 @@ class ProjectScanner {
 
   /// Get the full paths to scan based on home directory
   static List<String> getScanPaths() {
-    final home = Platform.environment['HOME'] ?? '';
-    return defaultScanPaths.map((p) => '$home/$p').toList();
+    final home = PlatformHelper.homeDir;
+    final sep = Platform.pathSeparator;
+    return defaultScanPaths.map((p) => '$home$sep${p.replaceAll('/', sep)}').toList();
   }
 
-  /// Scan a directory for git repositories (max 2 levels deep)
-  static Future<List<String>> scanDirectory(String path, {int maxDepth = 2}) async {
+  /// Scan a directory for git repositories
+  /// [maxDepth] controls how deep to scan. null = unlimited depth.
+  static Future<List<String>> scanDirectory(String path, {int? maxDepth}) async {
     final results = <String>[];
     final dir = Directory(path);
 
@@ -42,9 +47,9 @@ class ProjectScanner {
     Directory dir,
     List<String> results,
     int currentDepth,
-    int maxDepth,
+    int? maxDepth,
   ) async {
-    if (currentDepth > maxDepth) return;
+    if (maxDepth != null && currentDepth > maxDepth) return;
 
     try {
       // Check if this directory is a git repo
@@ -57,7 +62,7 @@ class ProjectScanner {
       // Scan subdirectories
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is Directory) {
-          final name = entity.path.split('/').last;
+          final name = entity.path.split(Platform.pathSeparator).last;
           // Skip hidden directories and common non-project directories
           if (name.startsWith('.') ||
               name == 'node_modules' ||
@@ -80,6 +85,7 @@ class ProjectScanner {
 
   /// Scan all default paths and return found git repositories
   static Future<List<String>> scanAllDefaultPaths({
+    int? maxDepth,
     void Function(String currentPath)? onProgress,
     void Function(int found)? onFound,
   }) async {
@@ -90,7 +96,7 @@ class ProjectScanner {
       final dir = Directory(path);
       if (await dir.exists()) {
         onProgress?.call(path);
-        final results = await scanDirectory(path);
+        final results = await scanDirectory(path, maxDepth: maxDepth);
         allResults.addAll(results);
         onFound?.call(allResults.length);
       }
@@ -101,6 +107,7 @@ class ProjectScanner {
 
   /// Scan and add new projects (skips already added ones)
   static Future<ScanResult> scanAndAddProjects({
+    int? maxDepth,
     void Function(String currentPath)? onProgress,
     void Function(int found)? onFound,
   }) async {
@@ -108,6 +115,7 @@ class ProjectScanner {
     final existingPaths = existingProjects.map((p) => p.path).toSet();
 
     final foundPaths = await scanAllDefaultPaths(
+      maxDepth: maxDepth,
       onProgress: onProgress,
       onFound: onFound,
     );
@@ -116,7 +124,7 @@ class ProjectScanner {
     int added = 0;
 
     for (final path in newPaths) {
-      final name = path.split('/').last;
+      final name = path.split(Platform.pathSeparator).last;
       final project = Project(
         name: name,
         path: path,
@@ -126,6 +134,7 @@ class ProjectScanner {
       added++;
     }
 
+    AppLogger.info(_tag, 'Scan complete: ${foundPaths.length} found, $added new, ${foundPaths.length - added} existing');
     return ScanResult(
       totalFound: foundPaths.length,
       newlyAdded: added,
@@ -134,16 +143,16 @@ class ProjectScanner {
   }
 
   /// Scan a custom path
-  static Future<ScanResult> scanCustomPath(String path) async {
+  static Future<ScanResult> scanCustomPath(String path, {int? maxDepth}) async {
     final existingProjects = await ProjectStorage.loadProjects();
     final existingPaths = existingProjects.map((p) => p.path).toSet();
 
-    final foundPaths = await scanDirectory(path, maxDepth: 3);
+    final foundPaths = await scanDirectory(path, maxDepth: maxDepth);
     final newPaths = foundPaths.where((p) => !existingPaths.contains(p)).toList();
     int added = 0;
 
     for (final foundPath in newPaths) {
-      final name = foundPath.split('/').last;
+      final name = foundPath.split(Platform.pathSeparator).last;
       final project = Project(
         name: name,
         path: foundPath,
