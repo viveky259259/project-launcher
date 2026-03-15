@@ -12,6 +12,8 @@ import '../services/app_logger.dart';
 import '../services/release_service.dart';
 import '../services/compliance_service.dart';
 import '../services/version_detector.dart';
+import '../services/ship_readiness_service.dart';
+import '../models/ship_checklist.dart';
 import '../models/ai_insight.dart';
 import '../models/release_info.dart';
 import '../theme/app_theme.dart';
@@ -83,6 +85,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   ComplianceReport? _complianceReport;
   bool _complianceLoaded = false;
   bool _runningAudit = false;
+
+  // Ship readiness data
+  ShipReadiness? _shipReadiness;
+  bool _shipLoaded = false;
 
   @override
   void initState() {
@@ -462,6 +468,12 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                   onTap: () => setState(() => _activeSection = 'ai'),
                 ),
                 _NavItem(
+                  label: 'Ship',
+                  icon: Icons.flight_takeoff_rounded,
+                  isActive: _activeSection == 'ship',
+                  onTap: () => setState(() => _activeSection = 'ship'),
+                ),
+                _NavItem(
                   label: 'Release',
                   icon: Icons.rocket_launch_rounded,
                   isActive: _activeSection == 'release',
@@ -781,6 +793,8 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
         return _buildEnvironmentSection(cs);
       case 'ai':
         return _buildAIInsightsSection(cs);
+      case 'ship':
+        return _buildShipSection(cs);
       case 'release':
         return _buildReleaseSection(cs);
       case 'compliance':
@@ -1463,6 +1477,239 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       ),
       const SizedBox(height: 16),
     ];
+  }
+
+  Future<void> _loadShipReadiness() async {
+    final readiness = await ShipReadinessService.evaluate(widget.project.path);
+    if (mounted) setState(() { _shipReadiness = readiness; _shipLoaded = true; });
+  }
+
+  Future<void> _toggleManualItem(ShipCheckItem item) async {
+    setState(() {
+      if (item.status == CheckStatus.pass) {
+        item.status = CheckStatus.pending;
+      } else {
+        item.status = CheckStatus.pass;
+      }
+    });
+    if (_shipReadiness != null) {
+      await ShipReadinessService.saveManualStates(widget.project.path, _shipReadiness!.categories);
+    }
+  }
+
+  Widget _buildShipSection(ColorScheme cs) {
+    if (!_shipLoaded) {
+      _loadShipReadiness();
+      return const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(strokeWidth: 2)));
+    }
+
+    final readiness = _shipReadiness!;
+    final scoreColor = readiness.overallScore >= 80 ? AppColors.success
+        : readiness.overallScore >= 50 ? AppColors.warning : AppColors.error;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header with overall score
+        Row(
+          children: [
+            Text('Ship Readiness', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: scoreColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${readiness.overallScore}', style: AppTypography.mono(fontSize: 18, fontWeight: FontWeight.w800, color: scoreColor)),
+                  Text('/100', style: AppTypography.mono(fontSize: 12, color: scoreColor.withValues(alpha: 0.6))),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              tooltip: 'Re-evaluate',
+              onPressed: () { setState(() => _shipLoaded = false); _loadShipReadiness(); },
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${readiness.totalPass}/${readiness.totalItems} checks passed',
+          style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+
+        // Overall progress bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: readiness.overallScore / 100,
+            backgroundColor: cs.outline.withValues(alpha: 0.1),
+            color: scoreColor,
+            minHeight: 8,
+          ),
+        ),
+
+        // Critical failures callout
+        if (readiness.criticalFailures.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.error.withValues(alpha: 0.2)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Blockers', style: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.error)),
+                const SizedBox(height: 6),
+                ...readiness.criticalFailures.map((item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Row(
+                    children: [
+                      Icon(Icons.cancel_rounded, size: 14, color: AppColors.error),
+                      const SizedBox(width: 8),
+                      Text(item.title, style: AppTypography.inter(fontSize: 12, color: cs.onSurface)),
+                    ],
+                  ),
+                )),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 20),
+
+        // Categories
+        ...readiness.categories.map((cat) => _buildShipCategory(cat, cs)),
+
+        // Legend
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            _legendItem(Icons.smart_toy_outlined, 'Auto-detected', cs),
+            const SizedBox(width: 16),
+            _legendItem(Icons.check_box_outline_blank, 'Manual toggle', cs),
+            const SizedBox(width: 16),
+            _legendItem(Icons.auto_awesome_outlined, 'AI-assisted', cs),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _legendItem(IconData icon, String label, ColorScheme cs) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+        const SizedBox(width: 4),
+        Text(label, style: AppTypography.inter(fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.5))),
+      ],
+    );
+  }
+
+  Widget _buildShipCategory(ShipCategory category, ColorScheme cs) {
+    if (category.items.isEmpty) return const SizedBox();
+    final catScoreColor = category.score >= 80 ? AppColors.success
+        : category.score >= 50 ? AppColors.warning : AppColors.error;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: cs.outline.withValues(alpha: 0.1)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Category header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              child: Row(
+                children: [
+                  Text(category.title, style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+                  const Spacer(),
+                  Text(
+                    '${category.passCount}/${category.applicableCount}',
+                    style: AppTypography.mono(fontSize: 12, fontWeight: FontWeight.w600, color: catScoreColor),
+                  ),
+                ],
+              ),
+            ),
+            // Items
+            ...category.items.map((item) => _buildShipItem(item, cs)),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShipItem(ShipCheckItem item, ColorScheme cs) {
+    final statusColor = switch (item.status) {
+      CheckStatus.pass => AppColors.success,
+      CheckStatus.fail => AppColors.error,
+      CheckStatus.warn => AppColors.warning,
+      CheckStatus.skip => const Color(0xFF6B7280),
+      CheckStatus.pending => cs.onSurfaceVariant.withValues(alpha: 0.4),
+      CheckStatus.running => AppColors.accent,
+    };
+    final statusIcon = switch (item.status) {
+      CheckStatus.pass => Icons.check_circle_rounded,
+      CheckStatus.fail => Icons.cancel_rounded,
+      CheckStatus.warn => Icons.warning_amber_rounded,
+      CheckStatus.skip => Icons.remove_circle_outline_rounded,
+      CheckStatus.pending => Icons.radio_button_unchecked_rounded,
+      CheckStatus.running => Icons.sync_rounded,
+    };
+    final modeIcon = switch (item.mode) {
+      CheckMode.auto => Icons.smart_toy_outlined,
+      CheckMode.manual => Icons.check_box_outline_blank,
+      CheckMode.ai => Icons.auto_awesome_outlined,
+    };
+
+    return InkWell(
+      onTap: item.mode == CheckMode.manual ? () => _toggleManualItem(item) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        child: Row(
+          children: [
+            Icon(statusIcon, size: 16, color: statusColor),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: AppTypography.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: item.status == CheckStatus.skip ? cs.onSurfaceVariant.withValues(alpha: 0.5) : cs.onSurface,
+                    ),
+                  ),
+                  if (item.detail != null)
+                    Text(item.detail!, style: AppTypography.inter(fontSize: 10, color: cs.onSurfaceVariant), overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            Icon(modeIcon, size: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildReleaseSection(ColorScheme cs) {
