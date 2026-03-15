@@ -5,8 +5,15 @@ import '../../services/background_monitor.dart';
 
 class StatusBar extends StatefulWidget {
   final DateTime? lastScanTime;
+  final int unreleasedCount;
+  final int readyToShipCount;
 
-  const StatusBar({super.key, this.lastScanTime});
+  const StatusBar({
+    super.key,
+    this.lastScanTime,
+    this.unreleasedCount = 0,
+    this.readyToShipCount = 0,
+  });
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -59,11 +66,29 @@ class _StatusBarState extends State<StatusBar> {
     return '';
   }
 
+  Color get _releaseStatusColor {
+    if (widget.unreleasedCount == 0) return AppColors.success;
+    if (widget.unreleasedCount >= 3) return AppColors.error;
+    return AppColors.warning;
+  }
+
+  String get _releaseStatusText {
+    final parts = <String>[];
+    if (widget.unreleasedCount > 0) {
+      parts.add('${widget.unreleasedCount} unreleased');
+    }
+    if (widget.readyToShipCount > 0) {
+      parts.add('${widget.readyToShipCount} ready to ship');
+    }
+    return parts.join(' | ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final ffiAvailable = NativeLib.isAvailable;
     final isChecking = BackgroundMonitor.status == MonitorStatus.checking;
+    final hasReleaseInfo = widget.unreleasedCount > 0 || widget.readyToShipCount > 0;
 
     return Container(
       height: 28,
@@ -128,6 +153,27 @@ class _StatusBarState extends State<StatusBar> {
           ),
 
           const Spacer(),
+
+          // Release pulse status
+          if (hasReleaseInfo) ...[
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _releaseStatusColor,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              _releaseStatusText,
+              style: AppTypography.mono(
+                fontSize: 10,
+                color: _releaseStatusColor,
+              ),
+            ),
+            const SizedBox(width: 16),
+          ],
 
           // Last scan time
           Text(

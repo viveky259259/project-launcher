@@ -76,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _pinnedCollapsed = false;
   Map<String, bool> _projectAIInsights = {};
   Map<String, String?> _projectVersions = {};
+  Map<String, int> _unreleasedCommits = {};
   StreamSubscription<FileSystemEvent>? _projectsFileWatcher;
 
   ProjectLauncherAppState? get _appState => ProjectLauncherApp.of(context);
@@ -203,15 +204,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final projects = await ProjectStorage.loadProjects();
     final flags = <String, bool>{};
     final versions = <String, String?>{};
+    final unreleased = <String, int>{};
     for (final p in projects) {
       flags[p.path] = await AIService.hasInsights(p.path);
       final info = await VersionDetector.detect(p.path);
       versions[p.path] = info.version;
+      unreleased[p.path] = info.unreleasedCommits;
     }
     if (mounted) {
       setState(() {
         _projectAIInsights = flags;
         _projectVersions = versions;
+        _unreleasedCommits = unreleased;
       });
     }
   }
@@ -1001,7 +1005,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildUpgradeBanner(cs),
 
               // Status bar
-              StatusBar(lastScanTime: _lastScanTime),
+              StatusBar(
+                lastScanTime: _lastScanTime,
+                unreleasedCount: _unreleasedCommits.values.where((c) => c > 0).length,
+                readyToShipCount: _projects.where((p) {
+                  final version = _projectVersions[p.path];
+                  final unreleased = _unreleasedCommits[p.path] ?? 0;
+                  return version != null && unreleased == 0;
+                }).length,
+              ),
             ],
           ),
 
@@ -1325,12 +1337,111 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildReleasePulse(ColorScheme cs) {
+    final projectsWithUnreleased = _unreleasedCommits.entries
+        .where((e) => e.value > 0)
+        .toList();
+    if (projectsWithUnreleased.isEmpty) return const SizedBox.shrink();
+
+    // Find most urgent project: highest unreleased_commits x days_since_last_release
+    String? urgentProjectPath;
+    double highestUrgency = 0;
+    for (final entry in projectsWithUnreleased) {
+      final lastCommit = _lastCommitDates[entry.key];
+      final daysSinceCommit = lastCommit != null
+          ? DateTime.now().difference(lastCommit).inDays.clamp(1, 9999)
+          : 1;
+      final urgency = entry.value.toDouble() * daysSinceCommit;
+      if (urgency > highestUrgency) {
+        highestUrgency = urgency;
+        urgentProjectPath = entry.key;
+      }
+    }
+
+    final urgentProject = urgentProjectPath != null
+        ? _projects.where((p) => p.path == urgentProjectPath).firstOrNull
+        : null;
+    final urgentCount = urgentProjectPath != null
+        ? _unreleasedCommits[urgentProjectPath] ?? 0
+        : 0;
+
+    final isUrgent = projectsWithUnreleased.length >= 3 || highestUrgency > 30;
+    final bannerColor = isUrgent
+        ? AppColors.warning.withValues(alpha: 0.12)
+        : AppColors.accent.withValues(alpha: 0.08);
+    final borderColor = isUrgent
+        ? AppColors.warning.withValues(alpha: 0.3)
+        : AppColors.accent.withValues(alpha: 0.2);
+    final iconColor = isUrgent ? AppColors.warning : AppColors.accent;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: () {
+          setState(() => _sortMode = SortMode.lastChanged);
+          SharedPreferences.getInstance().then((prefs) =>
+              prefs.setInt('sortMode', SortMode.lastChanged.index));
+        },
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: bannerColor,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isUrgent ? Icons.warning_amber_rounded : Icons.rocket_launch_rounded,
+                size: 18,
+                color: iconColor,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${projectsWithUnreleased.length} project${projectsWithUnreleased.length == 1 ? '' : 's'} ${projectsWithUnreleased.length == 1 ? 'has' : 'have'} unreleased work',
+                      style: AppTypography.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    if (urgentProject != null)
+                      Text(
+                        'Most urgent: ${urgentProject.name} ($urgentCount unreleased commits)',
+                        style: AppTypography.inter(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.sort_rounded,
+                size: 14,
+                color: cs.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildProjectList(List<Project> pinned, List<Project> recent) {
     final cs = Theme.of(context).colorScheme;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Release pulse banner
+        _buildReleasePulse(cs),
+
         // Pinned section
         if (pinned.isNotEmpty) ...[
           InkWell(

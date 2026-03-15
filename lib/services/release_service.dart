@@ -268,6 +268,61 @@ class ReleaseService {
     return null;
   }
 
+  /// Commit a version bump with a standard message.
+  static Future<bool> commitVersionBump(String projectPath, String version) async {
+    final tagName = version.startsWith('v') ? version : 'v$version';
+    AppLogger.info(_tag, 'Committing version bump to $tagName');
+    try {
+      final addResult = await Process.run(
+        'git', ['add', '-A'],
+        workingDirectory: projectPath,
+      );
+      if (addResult.exitCode != 0) {
+        AppLogger.error(_tag, 'git add failed: ${addResult.stderr}');
+        return false;
+      }
+      final commitResult = await Process.run(
+        'git', ['commit', '-m', 'Release $tagName'],
+        workingDirectory: projectPath,
+      );
+      if (commitResult.exitCode != 0) {
+        AppLogger.error(_tag, 'git commit failed: ${commitResult.stderr}');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      AppLogger.error(_tag, 'Failed to commit version bump: $e');
+      return false;
+    }
+  }
+
+  /// Push all commits and tags to remote.
+  static Future<bool> pushAll(String projectPath) async {
+    AppLogger.info(_tag, 'Pushing commits and tags to remote');
+    try {
+      final pushResult = await Process.run(
+        'git', ['push'],
+        workingDirectory: projectPath,
+      );
+      if (pushResult.exitCode != 0) {
+        AppLogger.error(_tag, 'git push failed: ${pushResult.stderr}');
+        return false;
+      }
+      final tagsResult = await Process.run(
+        'git', ['push', '--tags'],
+        workingDirectory: projectPath,
+      );
+      if (tagsResult.exitCode != 0) {
+        AppLogger.error(_tag, 'git push --tags failed: ${tagsResult.stderr}');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      AppLogger.error(_tag, 'Failed to push: $e');
+      return false;
+    }
+  }
+
   /// Get list of git tags.
   static Future<List<String>> getTags(String projectPath) async {
     try {
