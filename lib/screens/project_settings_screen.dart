@@ -80,6 +80,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   bool _releaseLoaded = false;
   bool _bumpingVersion = false;
   bool _creatingTag = false;
+  bool _shippingRelease = false;
 
   // Compliance data
   ComplianceReport? _complianceReport;
@@ -1861,6 +1862,34 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
         if (info.version != null) ...[
           Text('Actions', style: AppTypography.inter(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
           const SizedBox(height: 12),
+
+          // One-click release flow
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _shippingRelease ? null : () => _oneClickRelease('patch'),
+              icon: _shippingRelease
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.onPrimary,
+                      ),
+                    )
+                  : const Icon(Icons.rocket_launch_rounded, size: 18),
+              label: Text(_shippingRelease ? 'Shipping...' : 'Ship It \u2014 Bump, Tag & Release'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: cs.surface,
+                textStyle: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1946,6 +1975,162 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       setState(() => _creatingTag = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(url != null ? 'GitHub release created' : 'Failed to create release (is gh CLI installed?)'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      _loadReleaseData();
+    }
+  }
+
+  Future<void> _oneClickRelease(String level) async {
+    final currentVersion = _releaseInfo?.version;
+    if (currentVersion == null) return;
+
+    final newVersion = VersionDetector.bumpVersion(currentVersion, level);
+    final tagName = 'v$newVersion';
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          backgroundColor: cs.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
+          title: Row(
+            children: [
+              Icon(Icons.rocket_launch_rounded, color: AppColors.accent, size: 22),
+              const SizedBox(width: 10),
+              Text('Ship It', style: AppTypography.inter(fontSize: 18, fontWeight: FontWeight.w700, color: cs.onSurface)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This will perform the following steps:',
+                style: AppTypography.inter(fontSize: 13, color: cs.onSurface),
+              ),
+              const SizedBox(height: 12),
+              _shipStep('1', 'Bump version $currentVersion \u2192 $newVersion', cs),
+              _shipStep('2', 'Commit: "Release $tagName"', cs),
+              _shipStep('3', 'Create tag $tagName', cs),
+              _shipStep('4', 'Push commits and tags', cs),
+              _shipStep('5', 'Create GitHub release', cs),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel', style: AppTypography.inter(fontSize: 13, color: cs.onSurfaceVariant)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: cs.surface,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              ),
+              child: Text('Ship It', style: AppTypography.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _shippingRelease = true);
+    AppLogger.info('Release', 'One-click release started: $level bump for ${widget.project.name}');
+
+    try {
+      // Step 1: Bump version
+      final bumped = await ReleaseService.bumpVersion(widget.project.path, level);
+      if (bumped == null) {
+        _showShipResult(false, 'Failed to bump version');
+        return;
+      }
+      AppLogger.info('Release', 'Version bumped to $bumped');
+
+      // Step 2: Commit version bump
+      final committed = await ReleaseService.commitVersionBump(widget.project.path, bumped);
+      if (!committed) {
+        _showShipResult(false, 'Failed to commit version bump');
+        return;
+      }
+      AppLogger.info('Release', 'Version bump committed');
+
+      // Step 3: Create tag
+      final tagged = await ReleaseService.createTag(widget.project.path, bumped);
+      if (!tagged) {
+        _showShipResult(false, 'Failed to create tag');
+        return;
+      }
+      AppLogger.info('Release', 'Tag created');
+
+      // Step 4: Push everything
+      final pushed = await ReleaseService.pushAll(widget.project.path);
+      if (!pushed) {
+        _showShipResult(false, 'Failed to push (tag was created locally)');
+        return;
+      }
+      AppLogger.info('Release', 'Pushed commits and tags');
+
+      // Step 5: Create GitHub release
+      final url = await ReleaseService.createGitHubRelease(widget.project.path, bumped);
+      if (url != null) {
+        AppLogger.info('Release', 'GitHub release created: $url');
+      } else {
+        AppLogger.warn('Release', 'GitHub release failed (gh CLI may not be installed)');
+      }
+
+      _showShipResult(true, 'Shipped v$bumped${url != null ? '' : ' (GitHub release skipped)'}');
+    } catch (e) {
+      AppLogger.error('Release', 'One-click release failed: $e');
+      _showShipResult(false, 'Release failed: $e');
+    }
+  }
+
+  Widget _shipStep(String number, String text, ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(number, style: AppTypography.mono(fontSize: 10, color: AppColors.accent)),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showShipResult(bool success, String message) {
+    if (mounted) {
+      setState(() => _shippingRelease = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle_rounded : Icons.error_rounded,
+              color: success ? AppColors.success : AppColors.error,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
       ));
       _loadReleaseData();
