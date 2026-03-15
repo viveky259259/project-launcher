@@ -38,6 +38,7 @@ import 'notifications_screen.dart';
 import 'dashboard_customize_screen.dart';
 import '../services/dashboard_config.dart';
 import '../services/ai_service.dart';
+import '../services/version_detector.dart';
 
 enum SortMode { lastOpened, name, lastChanged }
 enum ViewMode { list, folder }
@@ -74,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, DateTime?> _lastCommitDates = {};
   bool _pinnedCollapsed = false;
   Map<String, bool> _projectAIInsights = {};
+  Map<String, String?> _projectVersions = {};
   StreamSubscription<FileSystemEvent>? _projectsFileWatcher;
 
   ProjectLauncherAppState? get _appState => ProjectLauncherApp.of(context);
@@ -200,11 +202,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadAIInsightsFlags() async {
     final projects = await ProjectStorage.loadProjects();
     final flags = <String, bool>{};
+    final versions = <String, String?>{};
     for (final p in projects) {
       flags[p.path] = await AIService.hasInsights(p.path);
+      final info = await VersionDetector.detect(p.path);
+      versions[p.path] = info.version;
     }
     if (mounted) {
-      setState(() => _projectAIInsights = flags);
+      setState(() {
+        _projectAIInsights = flags;
+        _projectVersions = versions;
+      });
     }
   }
 
@@ -1487,6 +1495,7 @@ class _HomeScreenState extends State<HomeScreen> {
       hasUncommitted: hs != null && !hs.details.noUncommittedChanges,
       branchName: _branchNames[project.path],
       hasAIInsights: _projectAIInsights[project.path] ?? false,
+      version: _projectVersions[project.path],
       onRemove: () => _removeProject(project),
       onOpenTerminal: () => _openInTerminal(project),
       onOpenVSCode: () => _openInVSCode(project),

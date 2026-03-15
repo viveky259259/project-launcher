@@ -22,6 +22,7 @@ class ProjectCard extends StatefulWidget {
   final VoidCallback onEditNotes;
   final VoidCallback? onSettings;
   final bool hasAIInsights;
+  final String? version;
 
   const ProjectCard({
     super.key,
@@ -40,6 +41,7 @@ class ProjectCard extends StatefulWidget {
     required this.onEditNotes,
     this.onSettings,
     this.hasAIInsights = false,
+    this.version,
   });
 
   @override
@@ -276,6 +278,21 @@ class _ProjectCardState extends State<ProjectCard> {
                             ),
                           ),
                         )),
+                      ],
+                      if (widget.version != null) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
+                          ),
+                          child: Text(
+                            'v${widget.version}',
+                            style: AppTypography.mono(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.accent),
+                          ),
+                        ),
                       ],
                     ],
                   ),
