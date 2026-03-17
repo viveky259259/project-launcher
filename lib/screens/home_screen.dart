@@ -2673,6 +2673,21 @@ class _ExportDialogState extends State<_ExportDialog> {
     _selected = {
       for (final p in widget.projects) p.path: true,
     };
+    _loadGitSettings();
+  }
+
+  Future<void> _loadGitSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final url = prefs.getString('git_push_url') ?? '';
+    final token = prefs.getString('git_push_token') ?? '';
+    if (url.isNotEmpty) _remoteUrlController.text = url;
+    if (token.isNotEmpty) _tokenController.text = token;
+  }
+
+  Future<void> _saveGitSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('git_push_url', _remoteUrlController.text.trim());
+    await prefs.setString('git_push_token', _tokenController.text.trim());
   }
 
   @override
@@ -2737,6 +2752,9 @@ class _ExportDialogState extends State<_ExportDialog> {
 
     final projects = _selectedProjects;
     if (projects.isEmpty) return;
+
+    // Persist git settings for next time
+    await _saveGitSettings();
 
     setState(() {
       _isPushing = true;
