@@ -2666,6 +2666,9 @@ class _ExportDialogState extends State<_ExportDialog> {
   bool _obscureToken = true;
   final _commitMsgController =
       TextEditingController(text: 'Initial commit — fresh export');
+  final _exportSearchController = TextEditingController();
+  String _exportSearchQuery = '';
+  bool _pushConfig = true;
 
   @override
   void initState() {
@@ -2695,6 +2698,7 @@ class _ExportDialogState extends State<_ExportDialog> {
     _remoteUrlController.dispose();
     _tokenController.dispose();
     _commitMsgController.dispose();
+    _exportSearchController.dispose();
     super.dispose();
   }
 
@@ -2973,44 +2977,108 @@ class _ExportDialogState extends State<_ExportDialog> {
         ),
         const SizedBox(height: 8),
 
-        // Project list
+        // Search bar
         Container(
-          height: 300,
+          height: 34,
           decoration: BoxDecoration(
-            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(AppRadius.md),
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(AppRadius.full),
             border: Border.all(color: cs.outline.withValues(alpha: 0.1)),
           ),
-          child: ListView.builder(
-            itemCount: widget.projects.length,
-            itemBuilder: (context, index) {
-              final project = widget.projects[index];
-              final isSelected = _selected[project.path] ?? false;
-              return CheckboxListTile(
-                value: isSelected,
-                onChanged: (val) => setState(() => _selected[project.path] = val ?? false),
-                title: Text(
-                  project.name,
-                  style: AppTypography.inter(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: cs.onSurface,
+          child: Row(
+            children: [
+              const SizedBox(width: 12),
+              Icon(Icons.search_rounded, size: 16,
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _exportSearchController,
+                  onChanged: (v) => setState(() => _exportSearchQuery = v),
+                  style: AppTypography.inter(fontSize: 13, color: cs.onSurface),
+                  decoration: InputDecoration(
+                    hintText: 'Search projects...',
+                    hintStyle: AppTypography.inter(
+                        fontSize: 13,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                subtitle: Text(
-                  PlatformHelper.shortenPath(project.path),
-                  style: AppTypography.mono(
-                    fontSize: 11,
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+              ),
+              if (_exportSearchQuery.isNotEmpty)
+                GestureDetector(
+                  onTap: () => setState(() {
+                    _exportSearchController.clear();
+                    _exportSearchQuery = '';
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Icon(Icons.close_rounded, size: 16,
+                        color: cs.onSurfaceVariant),
                   ),
                 ),
-                dense: true,
-                controlAffinity: ListTileControlAffinity.leading,
-                activeColor: AppColors.accent,
-              );
-            },
+            ],
           ),
         ),
+        const SizedBox(height: 8),
+
+        // Project list (filtered by search)
+        Builder(builder: (context) {
+          final query = _exportSearchQuery.toLowerCase();
+          final filtered = widget.projects
+              .where((p) =>
+                  query.isEmpty ||
+                  p.name.toLowerCase().contains(query) ||
+                  p.path.toLowerCase().contains(query))
+              .toList();
+
+          return Container(
+            height: 260,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: cs.outline.withValues(alpha: 0.1)),
+            ),
+            child: filtered.isEmpty
+                ? Center(
+                    child: Text('No projects match "$_exportSearchQuery"',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant)),
+                  )
+                : ListView.builder(
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final project = filtered[index];
+                      final isSelected = _selected[project.path] ?? false;
+                      return CheckboxListTile(
+                        value: isSelected,
+                        onChanged: (val) =>
+                            setState(() => _selected[project.path] = val ?? false),
+                        title: Text(
+                          project.name,
+                          style: AppTypography.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        subtitle: Text(
+                          PlatformHelper.shortenPath(project.path),
+                          style: AppTypography.mono(
+                            fontSize: 11,
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        activeColor: AppColors.accent,
+                      );
+                    },
+                  ),
+          );
+        }),
         const SizedBox(height: 12),
 
         // Include .git toggle
@@ -3228,7 +3296,33 @@ class _ExportDialogState extends State<_ExportDialog> {
           ),
           style: AppTypography.inter(fontSize: 13, color: cs.onSurface),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+
+        // Push config toggle
+        Row(
+          children: [
+            Switch(
+              value: _pushConfig,
+              activeThumbColor: AppColors.accent,
+              onChanged: (val) => setState(() => _pushConfig = val),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Include project configuration (paths of all projects)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Tooltip(
+              message: 'Pushes a projects.json with name and path for every project in your dashboard',
+              child: Icon(Icons.info_outline, size: 16,
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
 
         // Mode explanation
         Container(

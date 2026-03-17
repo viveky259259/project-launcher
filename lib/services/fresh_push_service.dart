@@ -117,11 +117,14 @@ class FreshPushService {
 
   /// Zip and push projects, skipping ones already on GitHub.
   /// Splits zips > 95MB into parts for GitHub's 100MB file limit.
+  /// [allProjects] — if provided, a projects.json config file is pushed
+  /// containing name:path for every project (not just selected ones).
   static Future<BatchPushResult> pushProjects({
     required List<Project> projects,
     required String remoteUrlTemplate,
     String? token,
     String commitMessage = 'Initial commit — fresh export',
+    List<Project>? allProjects,
     void Function(int current, int total, String projectName, String status)?
         onProgress,
   }) async {
@@ -142,28 +145,37 @@ class FreshPushService {
       AppLogger.info(
           _tag, 'Found ${alreadyUploaded.length} files on GitHub');
 
-      // 2. Clone the existing repo (preserves existing files)
+      // 2. Init fresh git repo (no clone needed — API check handles skip logic)
       onProgress?.call(
-          0, projects.length, 'Setting up', 'Cloning repository...');
-      var res = await Process.run(
-        'git', ['clone', '--depth', '1', authUrl, '.'],
+          0, projects.length, 'Setting up', 'Initializing...');
+      var res = await Process.run('git', ['init'], workingDirectory: workDir);
+      if (res.exitCode != 0) {
+        throw Exception('git init failed: ${res.stderr}');
+      }
+      await Process.run(
+          'git', ['branch', '-M', 'main'], workingDirectory: workDir);
+      res = await Process.run(
+        'git', ['remote', 'add', 'origin', authUrl],
         workingDirectory: workDir,
       );
-
       if (res.exitCode != 0) {
-        AppLogger.info(_tag, 'Clone failed, initializing fresh repo');
-        res = await Process.run('git', ['init'], workingDirectory: workDir);
-        if (res.exitCode != 0) {
-          throw Exception('git init failed: ${res.stderr}');
-        }
-        await Process.run(
-            'git', ['branch', '-M', 'main'], workingDirectory: workDir);
-        res = await Process.run(
-          'git', ['remote', 'add', 'origin', authUrl],
+        throw Exception('git remote add failed: ${res.stderr}');
+      }
+
+      // Pull existing history if the repo has content (allows normal push)
+      // If repo is empty or pull fails, first push will use --force
+      bool isEmptyRepo = alreadyUploaded.isEmpty;
+      if (!isEmptyRepo) {
+        onProgress?.call(
+            0, projects.length, 'Setting up', 'Fetching remote...');
+        final pullRes = await Process.run(
+          'git', ['pull', '--rebase', 'origin', 'main'],
           workingDirectory: workDir,
         );
-        if (res.exitCode != 0) {
-          throw Exception('git remote add failed: ${res.stderr}');
+        if (pullRes.exitCode != 0) {
+          // Pull failed — treat as empty, will force push
+          isEmptyRepo = true;
+          AppLogger.info(_tag, 'Pull failed, will force push first commit');
         }
       }
 
@@ -172,7 +184,39 @@ class FreshPushService {
         workingDirectory: workDir,
       );
 
-      // 3. Build deduplicated name list and figure out which to skip
+      // 3. Push project configuration (all projects, not just selected)
+      if (allProjects != null && allProjects.isNotEmpty) {
+        final configExists = alreadyUploaded.contains('projects.json');
+        // Always update config — it reflects the latest state
+        onProgress?.call(
+            0, projects.length, 'Config', 'Pushing project configuration...');
+
+        final configMap = <String, String>{};
+        for (final p in allProjects) {
+          configMap[p.name] = p.path;
+        }
+        final configJson =
+            const JsonEncoder.withIndent('  ').convert(configMap);
+        final configFile =
+            File('$workDir${Platform.pathSeparator}projects.json');
+        await configFile.writeAsString(configJson);
+
+        await _commitAndPush(
+          workDir: workDir,
+          files: ['projects.json'],
+          message: 'config: update project paths (${allProjects.length} projects)',
+          token: token,
+          forcePush: isEmptyRepo,
+          onProgress: (status) =>
+              onProgress?.call(0, projects.length, 'Config', status),
+        );
+        // After first push succeeds, no longer empty
+        isEmptyRepo = false;
+        AppLogger.info(_tag,
+            'Pushed projects.json (${allProjects.length} projects)');
+      }
+
+      // 4. Build deduplicated name list and figure out which to skip
       final projectZipNames = <int, String>{};
       for (var i = 0; i < projects.length; i++) {
         var zipName = projects[i].name;
@@ -246,6 +290,7 @@ class FreshPushService {
               files: [zipFileName],
               message: 'add: ${project.name}',
               token: token,
+              forcePush: isEmptyRepo && idx == 0,
               onProgress: (status) => onProgress?.call(
                   idx + 1, toUpload.length, project.name, status),
             );
@@ -299,6 +344,7 @@ class FreshPushService {
                 files: [partFile],
                 message: 'add: ${project.name} (part ${p + 1}/${partFiles.length})',
                 token: token,
+                forcePush: isEmptyRepo && idx == 0 && p == 0,
                 onProgress: (status) => onProgress?.call(
                     idx + 1, toUpload.length, project.name,
                     'Part ${p + 1}/${partFiles.length}: $status'),
@@ -363,11 +409,13 @@ class FreshPushService {
   }
 
   /// Commit specific files and push to origin main.
+  /// [forcePush] uses --force (for first push to empty/diverged repos).
   static Future<void> _commitAndPush({
     required String workDir,
     required List<String> files,
     required String message,
     String? token,
+    bool forcePush = false,
     void Function(String status)? onProgress,
   }) async {
     onProgress?.call('Committing...');
@@ -383,15 +431,23 @@ class FreshPushService {
     }
 
     onProgress?.call('Pushing...');
-    res = await Process.run(
-      'git', ['push', 'origin', 'main'],
-      workingDirectory: workDir,
-    );
-    if (res.exitCode != 0) {
+    if (forcePush) {
       res = await Process.run(
         'git', ['push', '--force', '-u', 'origin', 'main'],
         workingDirectory: workDir,
       );
+    } else {
+      res = await Process.run(
+        'git', ['push', 'origin', 'main'],
+        workingDirectory: workDir,
+      );
+      // Fallback to force if normal push rejected
+      if (res.exitCode != 0) {
+        res = await Process.run(
+          'git', ['push', '--force', '-u', 'origin', 'main'],
+          workingDirectory: workDir,
+        );
+      }
     }
     if (res.exitCode != 0) {
       throw Exception(
