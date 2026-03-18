@@ -2661,6 +2661,8 @@ class _ExportDialogState extends State<_ExportDialog> {
   String _pushStatus = '';
   BatchPushResult? _pushResult;
   String? _pushError;
+  final List<PushLogEntry> _pushLogs = [];
+  final _pushLogScrollController = ScrollController();
   final _remoteUrlController = TextEditingController();
   final _tokenController = TextEditingController();
   bool _obscureToken = true;
@@ -2699,6 +2701,7 @@ class _ExportDialogState extends State<_ExportDialog> {
     _tokenController.dispose();
     _commitMsgController.dispose();
     _exportSearchController.dispose();
+    _pushLogScrollController.dispose();
     super.dispose();
   }
 
@@ -2764,6 +2767,7 @@ class _ExportDialogState extends State<_ExportDialog> {
       _isPushing = true;
       _pushError = null;
       _pushStatus = 'Preparing...';
+      _pushLogs.clear();
     });
 
     try {
@@ -2781,6 +2785,20 @@ class _ExportDialogState extends State<_ExportDialog> {
               _totalProjects = total;
               _currentName = name;
               _pushStatus = status;
+            });
+          }
+        },
+        onLog: (entry) {
+          if (mounted) {
+            setState(() => _pushLogs.add(entry));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (_pushLogScrollController.hasClients) {
+                _pushLogScrollController.animateTo(
+                  _pushLogScrollController.position.maxScrollExtent,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                );
+              }
             });
           }
         },
@@ -3418,44 +3436,142 @@ class _ExportDialogState extends State<_ExportDialog> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const SizedBox(height: 20),
-        SizedBox(
-          width: 60,
-          height: 60,
-          child: CircularProgressIndicator(
-            value: progress > 0 ? progress : null,
-            backgroundColor: cs.surfaceContainerHighest,
-            color: AppColors.accent,
-            strokeWidth: 4,
-          ),
+        const SizedBox(height: 16),
+
+        // Current status header
+        Row(
+          children: [
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                value: progress > 0 ? progress : null,
+                backgroundColor: cs.surfaceContainerHighest,
+                color: AppColors.accent,
+                strokeWidth: 3,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _currentName.isNotEmpty ? _currentName : 'Preparing...',
+                    style: AppTypography.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _pushStatus,
+                    style: AppTypography.inter(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_totalProjects > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                ),
+                child: Text(
+                  '$_currentProject / $_totalProjects',
+                  style: AppTypography.mono(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ),
+          ],
         ),
-        const SizedBox(height: 20),
-        Text(
-          _currentName,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _pushStatus,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: cs.onSurfaceVariant,
-          ),
-        ),
-        if (_totalProjects > 0) ...[
-          const SizedBox(height: 4),
-          Text(
-            '$_currentProject of $_totalProjects',
-            style: AppTypography.mono(fontSize: 11, color: cs.onSurfaceVariant),
-          ),
-        ],
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
+
+        // Progress bar
         LinearProgressIndicator(
           value: progress > 0 ? progress : null,
           backgroundColor: cs.surfaceContainerHighest,
           color: AppColors.accent,
           borderRadius: BorderRadius.circular(2),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
+
+        // Activity log
+        Container(
+          height: 200,
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.1)),
+          ),
+          child: _pushLogs.isEmpty
+              ? Center(
+                  child: Text(
+                    'Starting...',
+                    style: AppTypography.inter(
+                        fontSize: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                  ),
+                )
+              : ListView.builder(
+                  controller: _pushLogScrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  itemCount: _pushLogs.length,
+                  itemBuilder: (context, index) {
+                    final entry = _pushLogs[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${entry.timestamp.hour.toString().padLeft(2, '0')}:${entry.timestamp.minute.toString().padLeft(2, '0')}:${entry.timestamp.second.toString().padLeft(2, '0')}',
+                            style: AppTypography.mono(
+                              fontSize: 10,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(entry.icon, style: const TextStyle(fontSize: 12)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: entry.message,
+                                    style: AppTypography.inter(
+                                      fontSize: 12,
+                                      color: cs.onSurface,
+                                    ),
+                                  ),
+                                  if (entry.detail != null) ...[
+                                    TextSpan(
+                                      text: '  ${entry.detail}',
+                                      style: AppTypography.inter(
+                                        fontSize: 11,
+                                        color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }
