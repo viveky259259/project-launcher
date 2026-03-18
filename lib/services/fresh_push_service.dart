@@ -5,6 +5,21 @@ import '../models/project.dart';
 import 'app_logger.dart';
 import 'export_service.dart';
 
+/// A single log entry emitted during push for detailed progress display.
+class PushLogEntry {
+  final DateTime timestamp;
+  final String icon;
+  final String message;
+  final String? detail;
+
+  const PushLogEntry({
+    required this.timestamp,
+    required this.icon,
+    required this.message,
+    this.detail,
+  });
+}
+
 /// Result of a fresh-push operation for a single project.
 class FreshPushResult {
   final String projectName;
@@ -127,6 +142,7 @@ class FreshPushService {
     List<Project>? allProjects,
     void Function(int current, int total, String projectName, String status)?
         onProgress,
+    void Function(PushLogEntry entry)? onLog,
   }) async {
     final tmpDir = await Directory.systemTemp.createTemp('fresh_push_');
     final workDir = tmpDir.path;
@@ -134,20 +150,36 @@ class FreshPushService {
     final results = <FreshPushResult>[];
     final usedNames = <String, int>{};
 
+    void log(String icon, String message, [String? detail]) {
+      onLog?.call(PushLogEntry(
+        timestamp: DateTime.now(),
+        icon: icon,
+        message: message,
+        detail: detail,
+      ));
+    }
+
     try {
       // 1. Check what's already uploaded
       onProgress?.call(
           0, projects.length, 'Checking', 'Fetching uploaded files...');
+      log('🔍', 'Checking remote repository...');
       final alreadyUploaded = await fetchUploadedFiles(
         remoteUrl: remoteUrlTemplate,
         token: token,
       );
+      if (alreadyUploaded.isNotEmpty) {
+        log('📂', 'Found ${alreadyUploaded.length} existing files on remote');
+      } else {
+        log('📂', 'Remote repository is empty');
+      }
       AppLogger.info(
           _tag, 'Found ${alreadyUploaded.length} files on GitHub');
 
-      // 2. Init fresh git repo (no clone needed — API check handles skip logic)
+      // 2. Init git repo and graft onto remote history (no file download)
       onProgress?.call(
           0, projects.length, 'Setting up', 'Initializing...');
+      log('⚙️', 'Initializing local git repository...');
       var res = await Process.run('git', ['init'], workingDirectory: workDir);
       if (res.exitCode != 0) {
         throw Exception('git init failed: ${res.stderr}');
@@ -162,34 +194,51 @@ class FreshPushService {
         throw Exception('git remote add failed: ${res.stderr}');
       }
 
-      // Pull existing history if the repo has content (allows normal push)
-      // If repo is empty or pull fails, first push will use --force
-      bool isEmptyRepo = alreadyUploaded.isEmpty;
-      if (!isEmptyRepo) {
-        onProgress?.call(
-            0, projects.length, 'Setting up', 'Fetching remote...');
-        final pullRes = await Process.run(
-          'git', ['pull', '--rebase', 'origin', 'main'],
-          workingDirectory: workDir,
-        );
-        if (pullRes.exitCode != 0) {
-          // Pull failed — treat as empty, will force push
-          isEmptyRepo = true;
-          AppLogger.info(_tag, 'Pull failed, will force push first commit');
-        }
-      }
-
       await Process.run(
         'git', ['config', 'http.postBuffer', '524288000'],
         workingDirectory: workDir,
       );
 
+      // Fetch remote commit+tree refs (no blob content) via --filter=blob:none.
+      // We use git plumbing (ls-tree, mktree, commit-tree) to build commits
+      // that extend the remote's tree without needing local blob data.
+      String? parentCommitSha;
+      String? parentTreeSha;
+      if (alreadyUploaded.isNotEmpty) {
+        log('🔗', 'Linking to remote history...');
+        final fetchRes = await Process.run(
+          'git', ['fetch', '--depth', '1', '--filter=blob:none', 'origin', 'main'],
+          workingDirectory: workDir,
+        );
+        if (fetchRes.exitCode == 0) {
+          final commitRes = await Process.run(
+            'git', ['rev-parse', 'origin/main'],
+            workingDirectory: workDir,
+          );
+          final treeRes = await Process.run(
+            'git', ['rev-parse', 'origin/main^{tree}'],
+            workingDirectory: workDir,
+          );
+          if (commitRes.exitCode == 0 && treeRes.exitCode == 0) {
+            parentCommitSha = (commitRes.stdout as String).trim();
+            parentTreeSha = (treeRes.stdout as String).trim();
+            log('✅', 'Linked to remote — existing files preserved',
+                '${alreadyUploaded.length} files on remote');
+          }
+        }
+        if (parentCommitSha == null) {
+          log('⚠️', 'Could not link to remote history',
+              'First push will force-create branch');
+        }
+      }
+      log('✅', 'Git repository ready');
+
       // 3. Push project configuration (all projects, not just selected)
       if (allProjects != null && allProjects.isNotEmpty) {
-        final configExists = alreadyUploaded.contains('projects.json');
-        // Always update config — it reflects the latest state
         onProgress?.call(
             0, projects.length, 'Config', 'Pushing project configuration...');
+        log('📋', 'Building projects.json config...',
+            '${allProjects.length} projects');
 
         final configMap = <String, String>{};
         for (final p in allProjects) {
@@ -201,17 +250,21 @@ class FreshPushService {
             File('$workDir${Platform.pathSeparator}projects.json');
         await configFile.writeAsString(configJson);
 
-        await _commitAndPush(
+        log('📤', 'Pushing projects.json...');
+        final configResult = await _commitAndPush(
           workDir: workDir,
           files: ['projects.json'],
           message: 'config: update project paths (${allProjects.length} projects)',
           token: token,
-          forcePush: isEmptyRepo,
+          parentCommitSha: parentCommitSha,
+          parentTreeSha: parentTreeSha,
           onProgress: (status) =>
               onProgress?.call(0, projects.length, 'Config', status),
         );
-        // After first push succeeds, no longer empty
-        isEmptyRepo = false;
+        parentCommitSha = configResult.commitSha;
+        parentTreeSha = configResult.treeSha;
+        log('✅', 'Project config pushed',
+            '${allProjects.length} projects indexed');
         AppLogger.info(_tag,
             'Pushed projects.json (${allProjects.length} projects)');
       }
@@ -234,6 +287,7 @@ class FreshPushService {
             success: true,
             skipped: true,
           ));
+          log('⏭️', 'Skipping ${projects[i].name}', 'Already on remote');
         } else {
           toUpload.add(i);
         }
@@ -245,7 +299,11 @@ class FreshPushService {
             _tag, 'Skipping $skippedCount already-uploaded projects');
       }
 
+      log('📊', '${toUpload.length} to upload, $skippedCount already synced',
+          '${projects.length} total selected');
+
       if (toUpload.isEmpty) {
+        log('✅', 'All projects already synced — nothing to push');
         return BatchPushResult(
           total: projects.length,
           succeeded: 0,
@@ -274,32 +332,46 @@ class FreshPushService {
 
         try {
           // a. Zip the project
+          log('📦', 'Zipping ${project.name}...', project.path);
           onProgress?.call(
               idx + 1, toUpload.length, project.name, 'Zipping...');
+          final zipStart = DateTime.now();
           await _zipProject(project, zipPath);
 
           final zipFile = File(zipPath);
           final zipSize = await zipFile.length();
+          final zipDuration = DateTime.now().difference(zipStart);
+          log('📦', '${project.name} zipped',
+              '${_formatSize(zipSize)} in ${_formatDuration(zipDuration)}');
 
           if (zipSize <= _maxFileSize) {
             // Small file — push as a single zip
             onProgress?.call(
-                idx + 1, toUpload.length, project.name, 'Committing...');
-            await _commitAndPush(
+                idx + 1, toUpload.length, project.name,
+                'Pushing ${_formatSize(zipSize)}...');
+            log('📤', 'Pushing ${project.name}...', _formatSize(zipSize));
+            final pushStart = DateTime.now();
+            final pushResult = await _commitAndPush(
               workDir: workDir,
               files: [zipFileName],
               message: 'add: ${project.name}',
               token: token,
-              forcePush: isEmptyRepo && idx == 0,
+              parentCommitSha: parentCommitSha,
+              parentTreeSha: parentTreeSha,
               onProgress: (status) => onProgress?.call(
                   idx + 1, toUpload.length, project.name, status),
             );
+            parentCommitSha = pushResult.commitSha;
+            parentTreeSha = pushResult.treeSha;
 
             // Delete locally
             if (await zipFile.exists()) await zipFile.delete();
 
+            final pushDuration = DateTime.now().difference(pushStart);
             results.add(FreshPushResult(
                 projectName: project.name, success: true));
+            log('✅', '${project.name} pushed',
+                '${_formatSize(zipSize)} in ${_formatDuration(pushDuration)}');
             AppLogger.info(_tag, 'Pushed $zipFileName (${_formatSize(zipSize)})');
           } else {
             // Large file — split into parts, push each one
@@ -307,8 +379,9 @@ class FreshPushService {
             onProgress?.call(
                 idx + 1, toUpload.length, project.name,
                 'Splitting into $partCount parts...');
+            log('✂️', 'Splitting ${project.name}',
+                '${_formatSize(zipSize)} → $partCount parts');
 
-            // Split: produces zipFileName.part01, zipFileName.part02, etc.
             final splitResult = await Process.run(
               'split',
               ['-b', '95m', '-d', '-a', '2', zipFileName, '$zipFileName.part'],
@@ -333,32 +406,42 @@ class FreshPushService {
             partFiles.sort();
 
             // Push each part as a separate commit, delete locally after
+            final partPushStart = DateTime.now();
             for (var p = 0; p < partFiles.length; p++) {
               final partFile = partFiles[p];
+              final partFileObj = File('$workDir${Platform.pathSeparator}$partFile');
+              final partSize = await partFileObj.length();
               onProgress?.call(
                   idx + 1, toUpload.length, project.name,
-                  'Pushing part ${p + 1}/${partFiles.length}...');
+                  'Pushing part ${p + 1}/${partFiles.length} (${_formatSize(partSize)})...');
+              log('📤', 'Pushing ${project.name} part ${p + 1}/${partFiles.length}',
+                  _formatSize(partSize));
 
-              await _commitAndPush(
+              final partResult = await _commitAndPush(
                 workDir: workDir,
                 files: [partFile],
                 message: 'add: ${project.name} (part ${p + 1}/${partFiles.length})',
                 token: token,
-                forcePush: isEmptyRepo && idx == 0 && p == 0,
+                parentCommitSha: parentCommitSha,
+                parentTreeSha: parentTreeSha,
                 onProgress: (status) => onProgress?.call(
                     idx + 1, toUpload.length, project.name,
                     'Part ${p + 1}/${partFiles.length}: $status'),
               );
+              parentCommitSha = partResult.commitSha;
+              parentTreeSha = partResult.treeSha;
 
               // Delete part locally after push
-              final pf = File('$workDir${Platform.pathSeparator}$partFile');
-              if (await pf.exists()) await pf.delete();
+              if (await partFileObj.exists()) await partFileObj.delete();
             }
 
+            final totalPartDuration = DateTime.now().difference(partPushStart);
             results.add(FreshPushResult(
                 projectName: project.name,
                 success: true,
                 parts: partFiles.length));
+            log('✅', '${project.name} pushed',
+                '${partFiles.length} parts, ${_formatSize(zipSize)} in ${_formatDuration(totalPartDuration)}');
             AppLogger.info(_tag,
                 'Pushed $zipFileName in ${partFiles.length} parts (${_formatSize(zipSize)})');
           }
@@ -371,6 +454,8 @@ class FreshPushService {
             success: false,
             error: _sanitizeError(e.toString(), token),
           ));
+          log('❌', 'Failed: ${project.name}',
+              _sanitizeError(e.toString(), token));
           AppLogger.error(_tag, 'Failed to push ${project.name}: $e');
         }
       }
@@ -378,6 +463,8 @@ class FreshPushService {
       final succeeded =
           results.where((r) => r.success && !r.skipped).length;
       final failed = results.where((r) => !r.success).length;
+      log('🏁', 'Push complete',
+          '$succeeded pushed, $skippedCount skipped, $failed failed');
       AppLogger.info(_tag,
           'Done: $succeeded pushed, $skippedCount skipped, $failed failed');
 
@@ -408,51 +495,154 @@ class FreshPushService {
     }
   }
 
-  /// Commit specific files and push to origin main.
-  /// [forcePush] uses --force (for first push to empty/diverged repos).
-  static Future<void> _commitAndPush({
+  /// Commit files and push using git plumbing to avoid needing local blobs.
+  ///
+  /// When [parentTreeSha] is provided, uses ls-tree + mktree + commit-tree
+  /// to build a new commit that extends the parent's tree with new files,
+  /// without ever downloading existing file content.
+  static Future<({String commitSha, String treeSha})> _commitAndPush({
     required String workDir,
     required List<String> files,
     required String message,
     String? token,
-    bool forcePush = false,
+    String? parentCommitSha,
+    String? parentTreeSha,
     void Function(String status)? onProgress,
   }) async {
     onProgress?.call('Committing...');
-    for (final f in files) {
-      await Process.run('git', ['add', f], workingDirectory: workDir);
-    }
-    var res = await Process.run(
-      'git', ['commit', '-m', message],
-      workingDirectory: workDir,
-    );
-    if (res.exitCode != 0) {
-      throw Exception('commit failed: ${res.stderr}');
-    }
+    final noFetchEnv = {'GIT_NO_LAZY_FETCH': '1'};
 
-    onProgress?.call('Pushing...');
-    if (forcePush) {
-      res = await Process.run(
-        'git', ['push', '--force', '-u', 'origin', 'main'],
+    String newCommitSha;
+    String newTreeSha;
+
+    if (parentTreeSha != null) {
+      // Plumbing mode: build tree manually to avoid needing old blobs
+
+      // Get parent tree entries (just SHAs + paths, no blob content needed)
+      final lsTreeRes = await Process.run(
+        'git', ['ls-tree', parentTreeSha],
+        workingDirectory: workDir,
+        environment: noFetchEnv,
+      );
+      final existingEntries = (lsTreeRes.stdout as String).trim();
+
+      // Hash each new file into git's object store
+      final newEntries = <String>[];
+      for (final f in files) {
+        final hashRes = await Process.run(
+          'git', ['hash-object', '-w', f],
+          workingDirectory: workDir,
+        );
+        if (hashRes.exitCode != 0) {
+          throw Exception('hash-object failed for $f: ${hashRes.stderr}');
+        }
+        final blobSha = (hashRes.stdout as String).trim();
+        newEntries.add('100644 blob $blobSha\t$f');
+      }
+
+      // Merge parent entries with new entries (new entries override by filename)
+      final newFileNames = files.toSet();
+      final mergedLines = <String>[];
+      if (existingEntries.isNotEmpty) {
+        for (final line in existingEntries.split('\n')) {
+          final parts = line.split('\t');
+          if (parts.length >= 2 && !newFileNames.contains(parts.last)) {
+            mergedLines.add(line);
+          }
+        }
+      }
+      mergedLines.addAll(newEntries);
+
+      // Create new tree from merged entries (mktree reads from stdin)
+      final mkTreeProc = await Process.start(
+        'git', ['mktree', '--missing'],
+        workingDirectory: workDir,
+        environment: noFetchEnv,
+      );
+      mkTreeProc.stdin.writeln(mergedLines.join('\n'));
+      await mkTreeProc.stdin.close();
+      final mkTreeOut = await mkTreeProc.stdout.transform(const SystemEncoding().decoder).join();
+      final mkTreeErr = await mkTreeProc.stderr.transform(const SystemEncoding().decoder).join();
+      final mkTreeExit = await mkTreeProc.exitCode;
+      if (mkTreeExit != 0) {
+        throw Exception('mktree failed: $mkTreeErr');
+      }
+      newTreeSha = mkTreeOut.trim();
+
+      // Create commit with parent
+      final commitArgs = ['commit-tree', newTreeSha, '-m', message];
+      if (parentCommitSha != null) {
+        commitArgs.addAll(['-p', parentCommitSha]);
+      }
+      final commitTreeRes = await Process.run(
+        'git', commitArgs,
+        workingDirectory: workDir,
+        environment: noFetchEnv,
+      );
+      if (commitTreeRes.exitCode != 0) {
+        throw Exception('commit-tree failed: ${commitTreeRes.stderr}');
+      }
+      newCommitSha = (commitTreeRes.stdout as String).trim();
+
+      // Update branch ref to point to new commit
+      await Process.run(
+        'git', ['update-ref', 'refs/heads/main', newCommitSha],
         workingDirectory: workDir,
       );
     } else {
-      res = await Process.run(
-        'git', ['push', 'origin', 'main'],
+      // Normal mode (empty repo) — use porcelain commands
+      for (final f in files) {
+        await Process.run('git', ['add', f], workingDirectory: workDir);
+      }
+      final commitRes = await Process.run(
+        'git', ['commit', '-m', message],
         workingDirectory: workDir,
       );
-      // Fallback to force if normal push rejected
-      if (res.exitCode != 0) {
-        res = await Process.run(
-          'git', ['push', '--force', '-u', 'origin', 'main'],
+      if (commitRes.exitCode != 0) {
+        throw Exception('commit failed: ${commitRes.stderr}');
+      }
+      final shaRes = await Process.run(
+        'git', ['rev-parse', 'HEAD'],
+        workingDirectory: workDir,
+      );
+      newCommitSha = (shaRes.stdout as String).trim();
+      final treeRes = await Process.run(
+        'git', ['rev-parse', 'HEAD^{tree}'],
+        workingDirectory: workDir,
+      );
+      newTreeSha = (treeRes.stdout as String).trim();
+    }
+
+    // Push
+    onProgress?.call('Pushing...');
+    final forcePush = parentCommitSha == null && parentTreeSha == null;
+    ProcessResult pushRes;
+    if (forcePush) {
+      pushRes = await Process.run(
+        'git', ['push', '--force', '-u', 'origin', 'main'],
+        workingDirectory: workDir,
+        environment: noFetchEnv,
+      );
+    } else {
+      pushRes = await Process.run(
+        'git', ['push', '--no-thin', 'origin', 'main'],
+        workingDirectory: workDir,
+        environment: noFetchEnv,
+      );
+      if (pushRes.exitCode != 0) {
+        pushRes = await Process.run(
+          'git', ['push', '--no-thin', '--force', '-u', 'origin', 'main'],
           workingDirectory: workDir,
+          environment: noFetchEnv,
         );
       }
     }
-    if (res.exitCode != 0) {
+    if (pushRes.exitCode != 0) {
       throw Exception(
-          'push failed: ${_sanitizeError(res.stderr as String, token)}');
+          'push failed: ${_sanitizeError(pushRes.stderr as String, token)}');
     }
+
+    return (commitSha: newCommitSha, treeSha: newTreeSha);
   }
 
   /// Clean up zip and any part files for a project.
@@ -490,6 +680,12 @@ class FreshPushService {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  static String _formatDuration(Duration d) {
+    if (d.inSeconds < 1) return '${d.inMilliseconds}ms';
+    if (d.inMinutes < 1) return '${d.inSeconds}s';
+    return '${d.inMinutes}m ${d.inSeconds % 60}s';
   }
 
   /// Strip token from error messages.
