@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import '../models/health_score.dart';
-import 'app_logger.dart';
+import 'package:launcher_models/launcher_models.dart';
+import 'package:launcher_native/launcher_native.dart';
 import 'git_service.dart';
 import 'platform_helper.dart';
 

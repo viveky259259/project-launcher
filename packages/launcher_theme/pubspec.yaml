@@ -1,0 +1,16 @@
+name: launcher_theme
+description: Design system for Project Launcher — colors, typography, spacing, and themes.
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.8
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

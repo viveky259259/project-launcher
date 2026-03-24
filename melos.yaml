@@ -1,0 +1,25 @@
+name: project_launcher_workspace
+
+packages:
+  - .
+  - packages/**
+
+scripts:
+  analyze:
+    description: Run static analysis across all packages
+    run: dart analyze --fatal-infos
+    exec:
+      concurrency: 3
+
+  test:
+    description: Run tests across all packages
+    run: flutter test
+    exec:
+      concurrency: 3
+      failFast: true
+
+  clean:
+    description: Clean all packages
+    run: flutter clean
+    exec:
+      concurrency: 3

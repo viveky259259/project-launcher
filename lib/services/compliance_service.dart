@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'app_logger.dart';
+import 'package:launcher_native/launcher_native.dart';
 import 'ai_service.dart';
-import '../models/release_info.dart';
+import 'package:launcher_models/launcher_models.dart';
 
 /// Enterprise compliance auditing: license detection, secret scanning, SBOM generation.
 class ComplianceService {

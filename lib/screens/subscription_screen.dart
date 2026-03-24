@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/premium_service.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   final VoidCallback? onStatusChanged;

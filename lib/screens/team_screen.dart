@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/team_service.dart';
 import '../services/project_storage.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 import '../widgets/sidebar.dart';
 import 'health_screen.dart';
 import 'insights_screen.dart';

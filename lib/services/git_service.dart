@@ -1,6 +1,5 @@
 import 'dart:io';
-import 'app_logger.dart';
-import 'native_lib.dart';
+import 'package:launcher_native/launcher_native.dart';
 
 /// Git service with Rust FFI acceleration (falls back to shell commands)
 class GitService {

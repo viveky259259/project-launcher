@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../theme.dart';
+
+/// Default border radius used by list components.
+const double _kDefaultRadius = 4.0;
 
 /// List variants matching UIkit-inspired styles
 enum UkListVariant { plain, divided, striped, condensed }
@@ -33,7 +35,7 @@ class UkList extends StatelessWidget {
     required this.items,
     this.variant = UkListVariant.plain,
     this.padding,
-    this.radius = AppRadius.md,
+    this.radius = _kDefaultRadius,
   });
 
   bool get _isDivided => variant == UkListVariant.divided;
@@ -104,7 +106,7 @@ class UkListTile extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    this.radius = AppRadius.md,
+    this.radius = _kDefaultRadius,
   });
 
   @override
@@ -176,7 +178,7 @@ class _UkListTileState extends State<_UkListTile> {
                   children: [
                     Text(
                       widget.data.title,
-                      style: Theme.of(context).textTheme.bodyLarge!.semiBold,
+                      style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.w600),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -184,7 +186,7 @@ class _UkListTileState extends State<_UkListTile> {
                       const SizedBox(height: 2),
                       Text(
                         widget.data.subtitle!,
-                        style: Theme.of(context).textTheme.bodyMedium!.withColor(cs.onSurfaceVariant),
+                        style: Theme.of(context).textTheme.bodyMedium!.copyWith(color: cs.onSurfaceVariant),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),

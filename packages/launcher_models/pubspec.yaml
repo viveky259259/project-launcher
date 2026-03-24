@@ -1,0 +1,9 @@
+name: launcher_models
+description: Data models for Project Launcher — pure Dart, no Flutter dependency.
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.8
+
+dev_dependencies:
+  lints: ^5.0.0
