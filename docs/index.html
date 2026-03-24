@@ -264,8 +264,8 @@
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#compare">Compare</a>
-        <a href="https://github.com/nickvivek/project-launcher">GitHub</a>
-        <a href="https://github.com/nickvivek/project-launcher/releases" class="btn btn-primary">Download</a>
+        <a href="https://github.com/viveky259259/project-launcher">GitHub</a>
+        <a href="https://github.com/viveky259259/project-launcher/releases" class="btn btn-primary">Download</a>
       </div>
     </div>
   </nav>
@@ -273,20 +273,24 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container">
-      <div class="hero-badge">Built with Flutter + Rust FFI <span>macOS</span></div>
+      <div class="hero-badge">v2.2.1 &middot; Built with Flutter + Rust FFI <span>macOS</span></div>
       <h1>The dashboard for your<br>entire <span class="gradient">dev life</span></h1>
       <p class="hero-sub">
         Every project, every language, every tool — one place.
         Health scores, git status, instant launch. Stop <code>cd</code>-ing around.
       </p>
       <div class="hero-actions">
-        <a href="https://github.com/nickvivek/project-launcher/releases" class="btn btn-primary">
+        <a href="https://github.com/viveky259259/project-launcher/releases" class="btn btn-primary">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download for macOS
         </a>
         <div class="brew-cmd" onclick="navigator.clipboard.writeText('brew install --cask project-launcher')">
           <code>brew install --cask project-launcher</code>
           <span class="copy">copy</span>
+        </div>
+        <div class="brew-cmd" onclick="navigator.clipboard.writeText('brew install plauncher')">
+          <code>brew install plauncher</code>
+          <span class="copy">CLI</span>
         </div>
       </div>
 
@@ -366,6 +370,21 @@
           <div class="feature-icon" style="background:rgba(232,121,249,0.15)">&#128640;</div>
           <h3>Ship Readiness</h3>
           <p>Checklist with auto-detect, manual, and AI-assisted checks. Smart release process detection follows your project's own workflow.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background:rgba(99,102,241,0.15)">&#128220;</div>
+          <h3>Release Management</h3>
+          <p>Version tracking, release pulse, one-click ship, and daily release habits — all from the status bar.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background:rgba(52,211,153,0.15)">&#128737;</div>
+          <h3>Enterprise Compliance</h3>
+          <p>License detection, secret scanning, SBOM generation, and code signing checks. Compliance audit in seconds.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background:rgba(251,191,36,0.15)">&#9000;</div>
+          <h3>CLI Tool</h3>
+          <p>Use <code>plauncher</code> from the terminal — list, search, open, and check health across all your projects.</p>
         </div>
       </div>
     </div>
@@ -463,6 +482,27 @@
             <td class="cross">&#10005;</td>
             <td class="cross">&#10005;</td>
           </tr>
+          <tr>
+            <td>Release management</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10005;</td>
+            <td class="cross">&#10005;</td>
+            <td class="cross">&#10005;</td>
+          </tr>
+          <tr>
+            <td>Compliance & SBOM</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10005;</td>
+            <td class="cross">&#10005;</td>
+            <td class="cross">&#10005;</td>
+          </tr>
+          <tr>
+            <td>CLI tool</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10005;</td>
+            <td class="cross">&#10005;</td>
+            <td class="cross">&#10005;</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -474,10 +514,10 @@
       <h2>Stop losing track of your projects</h2>
       <p>Free to use. No account required. 100% local.</p>
       <div class="hero-actions">
-        <a href="https://github.com/nickvivek/project-launcher/releases" class="btn btn-primary">
+        <a href="https://github.com/viveky259259/project-launcher/releases" class="btn btn-primary">
           Download for macOS
         </a>
-        <a href="https://github.com/nickvivek/project-launcher" class="btn btn-outline">
+        <a href="https://github.com/viveky259259/project-launcher" class="btn btn-outline">
           View on GitHub
         </a>
       </div>
@@ -487,7 +527,7 @@
   <!-- Footer -->
   <footer>
     <div class="container">
-      <p>Made by <a href="https://github.com/nickvivek">Vivek Yadav</a> &middot; Built with Flutter + Rust &middot; <a href="https://github.com/nickvivek/project-launcher">Open Source</a></p>
+      <p>Made by <a href="https://github.com/viveky259259">Vivek Yadav</a> &middot; Built with Flutter + Rust &middot; <a href="https://github.com/viveky259259/project-launcher">Open Source</a></p>
     </div>
   </footer>
 
