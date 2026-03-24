@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/notification_service.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});

@@ -1,14 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'services/app_logger.dart';
+import 'package:launcher_native/launcher_native.dart';
 import 'services/referral_service.dart';
 import 'services/premium_service.dart';
 import 'services/api_server.dart';
 import 'services/notification_service.dart';
 import 'services/background_monitor.dart';
 import 'screens/home_screen.dart';
-import 'theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

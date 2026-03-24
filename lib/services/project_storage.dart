@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
-import '../models/project.dart';
-import 'app_logger.dart';
+import 'package:launcher_models/launcher_models.dart';
+import 'package:launcher_native/launcher_native.dart';
 import 'platform_helper.dart';
 
 class ProjectStorage {

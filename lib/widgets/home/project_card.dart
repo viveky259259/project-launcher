@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../models/project.dart';
-import '../../models/health_score.dart';
+import 'package:launcher_models/launcher_models.dart';
 import '../../services/launcher_service.dart';
 import '../../services/platform_helper.dart';
 import '../../services/project_type_detector.dart';
-import '../../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class ProjectCard extends StatefulWidget {
   final Project project;

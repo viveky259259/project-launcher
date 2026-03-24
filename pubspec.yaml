@@ -36,12 +36,19 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.1.2
   shared_preferences: ^2.2.2
-  google_fonts: ^6.1.0
   file_picker: ^8.0.0
   share_plus: ^10.0.0
   uuid: ^4.0.0
   ffi: ^2.1.0
   http: ^1.2.0
+  launcher_theme:
+    path: packages/launcher_theme
+  launcher_kit:
+    path: packages/launcher_kit
+  launcher_models:
+    path: packages/launcher_models
+  launcher_native:
+    path: packages/launcher_native
 
 dev_dependencies:
   flutter_test:

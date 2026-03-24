@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/plugins/plugin_system.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class PluginsScreen extends StatefulWidget {
   const PluginsScreen({super.key});

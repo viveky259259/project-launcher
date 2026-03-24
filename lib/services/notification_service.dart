@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/health_score.dart';
+import 'package:launcher_models/launcher_models.dart';
 import 'git_service.dart';
 import 'health_service.dart';
 import 'project_storage.dart';

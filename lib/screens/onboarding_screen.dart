@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../services/native_lib.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_native/launcher_native.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class OnboardingScreen extends StatelessWidget {
   final VoidCallback onStartScan;

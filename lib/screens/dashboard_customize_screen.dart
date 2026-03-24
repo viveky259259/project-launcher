@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/dashboard_config.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class DashboardCustomizeScreen extends StatefulWidget {
   final VoidCallback onSaved;

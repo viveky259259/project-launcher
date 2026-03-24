@@ -1,3 +1,2 @@
-// Barrel file - re-exports the new theme system for backward compatibility.
-// All existing imports of 'theme.dart' will continue to work.
-export 'theme/app_theme.dart';
+// Barrel file - re-exports the theme package for backward compatibility.
+export 'package:launcher_theme/launcher_theme.dart';

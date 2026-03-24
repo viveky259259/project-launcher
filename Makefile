@@ -1,7 +1,12 @@
-.PHONY: all rust flutter build install clean
+.PHONY: all rust flutter build install clean bootstrap
 
 # Default target
 all: build
+
+# Bootstrap monorepo (install melos + resolve all packages)
+bootstrap:
+	dart pub global activate melos
+	melos bootstrap
 
 # Build Rust library
 rust:
@@ -44,3 +49,7 @@ dev: rust
 test:
 	cd rust && cargo test
 	flutter test
+
+# Run static analysis on all packages
+analyze:
+	melos run analyze

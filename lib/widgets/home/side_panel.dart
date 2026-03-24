@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 import 'filter_bar.dart';
 
 class HomeSidePanel extends StatelessWidget {

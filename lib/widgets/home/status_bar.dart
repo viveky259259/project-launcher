@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_theme.dart';
-import '../../services/native_lib.dart';
+import 'package:launcher_theme/launcher_theme.dart';
+import 'package:launcher_native/launcher_native.dart';
 import '../../services/background_monitor.dart';
 
 class StatusBar extends StatefulWidget {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../screens/home_screen.dart' show SortMode;
 import '../../services/project_type_detector.dart';
-import '../../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 enum HealthFilter { all, healthy, needsAttention, critical }
 enum StalenessFilter { all, staleOnly }

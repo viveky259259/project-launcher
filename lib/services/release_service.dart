@@ -1,9 +1,9 @@
 import 'dart:io';
-import 'app_logger.dart';
+import 'package:launcher_native/launcher_native.dart';
 import 'git_service.dart';
 import 'version_detector.dart';
 import 'compliance_service.dart';
-import '../models/release_info.dart';
+import 'package:launcher_models/launcher_models.dart';
 
 /// Manages releases: readiness scoring, version bumping, tagging, and release creation.
 class ReleaseService {

@@ -1,7 +1,7 @@
 import 'dart:developer';
 import 'package:flutter/material.dart';
 import '../services/premium_service.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 import 'subscription_screen.dart';
 
 class ProScreen extends StatefulWidget {

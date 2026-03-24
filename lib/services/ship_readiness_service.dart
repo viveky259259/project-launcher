@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
-import 'app_logger.dart';
+import 'package:launcher_native/launcher_native.dart';
 import 'git_service.dart';
 import 'version_detector.dart';
 import 'release_service.dart';
 import 'platform_helper.dart';
 import 'project_type_detector.dart';
-import '../models/ship_checklist.dart';
+import 'package:launcher_models/launcher_models.dart';
 
 /// Comprehensive ship readiness evaluation: auto-detect, manual, AI-assisted.
 class ShipReadinessService {

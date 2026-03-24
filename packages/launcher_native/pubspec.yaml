@@ -1,0 +1,12 @@
+name: launcher_native
+description: Rust FFI bindings and logging utilities for Project Launcher.
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.8
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^5.0.0

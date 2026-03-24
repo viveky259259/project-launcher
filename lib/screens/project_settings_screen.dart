@@ -1,22 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/project.dart';
-import '../models/health_score.dart';
+import 'package:launcher_models/launcher_models.dart';
 import '../services/git_service.dart';
 import '../services/launcher_service.dart';
 import '../services/project_storage.dart';
 import '../services/project_type_detector.dart';
 import '../services/ai_service.dart';
-import '../services/app_logger.dart';
+import 'package:launcher_native/launcher_native.dart';
 import '../services/release_service.dart';
 import '../services/compliance_service.dart';
 import '../services/version_detector.dart';
 import '../services/ship_readiness_service.dart';
-import '../models/ship_checklist.dart';
-import '../models/ai_insight.dart';
-import '../models/release_info.dart';
-import '../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 class ProjectSettingsScreen extends StatefulWidget {
   final Project project;

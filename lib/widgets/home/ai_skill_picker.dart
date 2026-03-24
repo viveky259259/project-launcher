@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../models/ai_insight.dart';
+import 'package:launcher_models/launcher_models.dart';
 import '../../services/ai_service.dart';
-import '../../theme/app_theme.dart';
+import 'package:launcher_theme/launcher_theme.dart';
 
 /// A dialog that lists available Claude skills and lets the user run one on a project.
 class AISkillPicker extends StatefulWidget {
