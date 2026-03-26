@@ -1196,16 +1196,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _scanForProjects,
           ),
           _HeaderButton(
-            icon: Icons.terminal_rounded,
-            tooltip: 'New Terminal',
-            onPressed: () => LauncherService.openTerminal(),
-          ),
-          _HeaderButton(
-            icon: Icons.code_rounded,
-            tooltip: 'Open VS Code',
-            onPressed: () => LauncherService.openVSCode(),
-          ),
-          _HeaderButton(
             icon: Icons.add_rounded,
             tooltip: 'Add project',
             onPressed: _addProjectManually,

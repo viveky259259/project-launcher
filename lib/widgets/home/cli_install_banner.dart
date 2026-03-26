@@ -123,8 +123,15 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
   Widget _buildPrompt(ColorScheme cs) {
     return Row(
       children: [
-        const Icon(Icons.terminal_rounded, size: 18, color: AppColors.accent),
-        const SizedBox(width: 10),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+          child: const Icon(Icons.terminal_rounded, size: 16, color: AppColors.accent),
+        ),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -132,13 +139,14 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
               Text(
                 'Install plauncher CLI',
                 style: AppTypography.inter(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: cs.onSurface,
                 ),
               ),
+              const SizedBox(height: 2),
               Text(
-                'Open projects from your terminal',
+                'Open & manage projects from your terminal',
                 style: AppTypography.inter(
                   fontSize: 11,
                   color: cs.onSurfaceVariant,
@@ -147,28 +155,29 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
             ],
           ),
         ),
-        TextButton(
+        const SizedBox(width: 8),
+        ElevatedButton.icon(
           onPressed: _onInstall,
-          style: TextButton.styleFrom(
+          icon: const Icon(Icons.download_rounded, size: 14),
+          label: Text(
+            'Install',
+            style: AppTypography.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.accent,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.full),
             ),
           ),
-          child: Text(
-            'Install',
-            style: AppTypography.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 4),
         PopupMenuButton<String>(
           onSelected: (value) {
             if (value == 'later') _onLater();
@@ -180,9 +189,9 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
           ],
           padding: EdgeInsets.zero,
           child: Icon(
-            Icons.more_horiz_rounded,
-            size: 16,
-            color: cs.onSurfaceVariant,
+            Icons.close_rounded,
+            size: 14,
+            color: cs.onSurfaceVariant.withValues(alpha: 0.5),
           ),
         ),
       ],
