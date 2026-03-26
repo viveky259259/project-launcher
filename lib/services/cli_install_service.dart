@@ -115,11 +115,11 @@ class CliInstallService {
       final archResult = await Process.run('uname', ['-m']);
       final arch = archResult.stdout.toString().trim(); // arm64 or x86_64
 
-      // Get latest release tag
-      onProgress?.call('Finding latest release...');
+      // Find the latest release that has a CLI binary asset
+      onProgress?.call('Finding latest CLI release...');
       final apiResult = await Process.run('curl', [
         '-fsSL',
-        'https://api.github.com/repos/$_githubRepo/releases/latest',
+        'https://api.github.com/repos/$_githubRepo/releases',
       ]);
 
       if (apiResult.exitCode != 0) {
@@ -130,25 +130,31 @@ class CliInstallService {
         );
       }
 
-      final releaseJson = jsonDecode(apiResult.stdout.toString()) as Map<String, dynamic>;
-      final tag = releaseJson['tag_name'] as String;
-      final assets = releaseJson['assets'] as List<dynamic>;
-
-      // Find matching asset
+      final releases = jsonDecode(apiResult.stdout.toString()) as List<dynamic>;
       final archLabel = arch == 'x86_64' ? 'x86_64' : 'arm64';
       final assetPattern = RegExp('plauncher.*macos.*$archLabel.*\\.tar\\.gz');
-      final asset = assets.cast<Map<String, dynamic>>().where(
-        (a) => assetPattern.hasMatch(a['name'] as String),
-      );
 
-      if (asset.isEmpty) {
-        return CliInstallResult(
-          success: false,
-          message: 'No CLI binary found for macOS $archLabel in release $tag',
+      String? downloadUrl;
+      String? tag;
+      for (final release in releases) {
+        final releaseMap = release as Map<String, dynamic>;
+        final assets = releaseMap['assets'] as List<dynamic>;
+        final match = assets.cast<Map<String, dynamic>>().where(
+          (a) => assetPattern.hasMatch(a['name'] as String),
         );
+        if (match.isNotEmpty) {
+          downloadUrl = match.first['browser_download_url'] as String;
+          tag = releaseMap['tag_name'] as String;
+          break;
+        }
       }
 
-      final downloadUrl = asset.first['browser_download_url'] as String;
+      if (downloadUrl == null) {
+        return const CliInstallResult(
+          success: false,
+          message: 'No CLI binary found in any release',
+        );
+      }
 
       // Download
       onProgress?.call('Downloading plauncher $tag...');
