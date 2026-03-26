@@ -16,12 +16,13 @@ class CliInstallBanner extends StatefulWidget {
   State<CliInstallBanner> createState() => _CliInstallBannerState();
 }
 
-enum _BannerState { prompt, installing, success, error }
+enum _BannerState { prompt, installing, success, needsPath, error }
 
 class _CliInstallBannerState extends State<CliInstallBanner> {
   _BannerState _state = _BannerState.prompt;
   String _statusMessage = '';
   String? _errorMessage;
+  String _shellProfile = '';
 
   Future<void> _onInstall() async {
     setState(() {
@@ -37,12 +38,35 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
 
     if (!mounted) return;
 
-    if (result.success) {
+    if (result.success && result.needsPathSetup) {
+      setState(() {
+        _state = _BannerState.needsPath;
+        _statusMessage = result.message;
+      });
+    } else if (result.success) {
       setState(() {
         _state = _BannerState.success;
         _statusMessage = result.message;
       });
       await Future.delayed(const Duration(seconds: 2));
+      if (mounted) widget.onInstalled();
+    } else {
+      setState(() {
+        _state = _BannerState.error;
+        _errorMessage = result.error ?? result.message;
+      });
+    }
+  }
+
+  Future<void> _onAutoAddPath() async {
+    final result = await CliInstallService.addToPath();
+    if (!mounted) return;
+    if (result.success) {
+      setState(() {
+        _state = _BannerState.success;
+        _statusMessage = 'Installed! Restart your terminal to use plauncher.';
+      });
+      await Future.delayed(const Duration(seconds: 3));
       if (mounted) widget.onInstalled();
     } else {
       setState(() {
@@ -89,6 +113,8 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
         return _buildInstalling(cs);
       case _BannerState.success:
         return _buildSuccess(cs);
+      case _BannerState.needsPath:
+        return _buildNeedsPath(cs);
       case _BannerState.error:
         return _buildError(cs);
     }
@@ -200,6 +226,76 @@ class _CliInstallBannerState extends State<CliInstallBanner> {
               fontSize: 12,
               fontWeight: FontWeight.w600,
               color: AppColors.success,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNeedsPath(ColorScheme cs) {
+    return Row(
+      children: [
+        const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.warning),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'plauncher installed to ~/.local/bin',
+                style: AppTypography.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface,
+                ),
+              ),
+              Text(
+                'Add ~/.local/bin to your PATH to use it',
+                style: AppTypography.inter(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        TextButton(
+          onPressed: _onAutoAddPath,
+          style: TextButton.styleFrom(
+            backgroundColor: AppColors.accent,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.full),
+            ),
+          ),
+          child: Text(
+            'Auto-add',
+            style: AppTypography.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        TextButton(
+          onPressed: () {
+            widget.onDismissed();
+          },
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: Text(
+            'I\'ll do it',
+            style: AppTypography.inter(
+              fontSize: 11,
+              color: cs.onSurfaceVariant,
             ),
           ),
         ),

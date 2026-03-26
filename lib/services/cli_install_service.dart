@@ -8,11 +8,13 @@ class CliInstallResult {
   final bool success;
   final String message;
   final String? error;
+  final bool needsPathSetup;
 
   const CliInstallResult({
     required this.success,
     required this.message,
     this.error,
+    this.needsPathSetup = false,
   });
 }
 
@@ -62,6 +64,61 @@ class CliInstallService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefDontAskKey, true);
     AppLogger.info(_tag, 'User chose "don\'t ask again" for CLI install');
+  }
+
+  /// Check if ~/.local/bin is in the user's PATH.
+  static bool isLocalBinInPath() {
+    final path = Platform.environment['PATH'] ?? '';
+    final home = Platform.environment['HOME'] ?? '';
+    return path.contains('$home/.local/bin') || path.contains('\$HOME/.local/bin');
+  }
+
+  /// Detect the user's shell profile file.
+  static String _shellProfile() {
+    final home = Platform.environment['HOME'] ?? '';
+    final shell = Platform.environment['SHELL'] ?? '/bin/zsh';
+    if (shell.contains('zsh')) return '$home/.zshrc';
+    if (shell.contains('bash')) {
+      // Prefer .bash_profile on macOS, .bashrc on Linux
+      final bashProfile = File('$home/.bash_profile');
+      if (bashProfile.existsSync()) return bashProfile.path;
+      return '$home/.bashrc';
+    }
+    return '$home/.profile';
+  }
+
+  /// Add ~/.local/bin to the user's shell PATH automatically.
+  static Future<CliInstallResult> addToPath() async {
+    try {
+      final profilePath = _shellProfile();
+      final exportLine = '\nexport PATH="\$HOME/.local/bin:\$PATH"\n';
+
+      // Check if already present
+      final file = File(profilePath);
+      if (file.existsSync()) {
+        final content = await file.readAsString();
+        if (content.contains('.local/bin')) {
+          return const CliInstallResult(
+            success: true,
+            message: 'PATH already configured',
+          );
+        }
+      }
+
+      await file.writeAsString(exportLine, mode: FileMode.append);
+      AppLogger.info(_tag, 'Added ~/.local/bin to PATH in $profilePath');
+      return CliInstallResult(
+        success: true,
+        message: 'Added to PATH in ${profilePath.split('/').last}',
+      );
+    } catch (e) {
+      AppLogger.error(_tag, 'Failed to add to PATH: $e');
+      return CliInstallResult(
+        success: false,
+        message: 'Failed to update shell profile',
+        error: e.toString(),
+      );
+    }
   }
 
   /// Check if Homebrew is available.
@@ -205,19 +262,21 @@ class CliInstallService {
       // Cleanup
       await Process.run('rm', ['-rf', tmpDir]);
 
-      // Verify
-      final verified = await isInstalled();
-      if (verified) {
-        AppLogger.info(_tag, 'Installed via direct download ($tag, $archLabel)');
+      // Verify — binary exists even if not yet in PATH
+      final binaryExists = await File('$installDir/$_binaryName').exists();
+      if (binaryExists) {
+        final pathOk = isLocalBinInPath();
+        AppLogger.info(_tag, 'Installed via direct download ($tag, $archLabel), PATH ok: $pathOk');
         return CliInstallResult(
           success: true,
           message: 'plauncher $tag installed successfully',
+          needsPathSetup: !pathOk,
         );
       }
 
       return const CliInstallResult(
         success: false,
-        message: 'Installation completed but plauncher not found in PATH',
+        message: 'Installation completed but binary not found',
       );
     } catch (e) {
       AppLogger.error(_tag, 'Install failed: $e');
