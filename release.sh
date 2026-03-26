@@ -50,12 +50,24 @@ echo "════════════════════════�
 echo "  Phase 1/8: PREPARE"
 echo "══════════════════════════════════════════════════"
 
-# Load .env
+# Load secrets from private repo (https://github.com/viveky259259/secrets)
+SECRETS_DIR="$HOME/.project-launcher-secrets"
 if [ -f .env ]; then
+  echo "  ▸ Loading secrets from local .env"
   export $(grep -v '^#' .env | grep -v '^$' | xargs)
+elif [ -f "$SECRETS_DIR/project-launcher/.env" ]; then
+  echo "  ▸ Loading secrets from cached secrets repo"
+  export $(grep -v '^#' "$SECRETS_DIR/project-launcher/.env" | grep -v '^$' | xargs)
 else
-  echo "ERROR: .env file not found. Create one from .env.example"
-  exit 1
+  echo "  ▸ Cloning secrets from github.com/viveky259259/secrets..."
+  git clone --quiet --depth 1 https://github.com/viveky259259/secrets.git "$SECRETS_DIR" 2>/dev/null
+  if [ ! -f "$SECRETS_DIR/project-launcher/.env" ]; then
+    echo "ERROR: Secrets not found. Ensure project-launcher/.env exists in viveky259259/secrets"
+    rm -rf "$SECRETS_DIR"
+    exit 1
+  fi
+  export $(grep -v '^#' "$SECRETS_DIR/project-launcher/.env" | grep -v '^$' | xargs)
+  echo "  ✓ Secrets loaded"
 fi
 
 # Validate required env vars
