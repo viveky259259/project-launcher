@@ -308,10 +308,40 @@
     footer a { color: var(--text-secondary); text-decoration: none; font-weight: 500; }
     footer a:hover { color: var(--accent); }
 
+    /* Feature showcase — alternating image + text */
+    .showcase { padding: 80px 0; }
+    .showcase:nth-child(even) { background: var(--bg-warm); }
+    .showcase-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 60px;
+      align-items: center;
+    }
+    .showcase-row.reverse { direction: rtl; }
+    .showcase-row.reverse > * { direction: ltr; }
+    .showcase-img {
+      border-radius: 16px; overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.06);
+    }
+    .showcase-img img { width: 100%; display: block; }
+    .showcase-text h3 {
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-size: 28px; font-weight: 400; margin-bottom: 12px;
+    }
+    .showcase-text p {
+      color: var(--text-secondary); font-size: 15px; line-height: 1.7;
+      margin-bottom: 8px;
+    }
+    .showcase-text .badge {
+      display: inline-block; padding: 4px 12px; border-radius: 100px;
+      font-size: 12px; font-weight: 600; margin-bottom: 16px;
+      background: var(--accent-soft); color: var(--accent);
+    }
+
     /* Responsive */
     @media (max-width: 768px) {
       .feature-grid { grid-template-columns: 1fr; }
       .steps { grid-template-columns: 1fr; gap: 40px; }
+      .showcase-row, .showcase-row.reverse { grid-template-columns: 1fr; direction: ltr; }
       .nav-links { display: none; }
       .comparison { overflow-x: auto; }
     }
@@ -422,77 +452,154 @@
     </div>
   </section>
 
-  <!-- Features -->
-  <section class="features" id="features">
-    <div class="container">
-      <p class="section-label" style="text-align:center">Features</p>
-      <h2>Everything you need, nothing you don't</h2>
-      <p class="subtitle">Built for developers who juggle multiple projects across multiple stacks.</p>
+  <!-- Feature Showcases -->
+  <div id="features">
 
-      <div class="feature-grid">
-        <div class="feature-card">
-          <div class="feature-icon" style="background:var(--accent-medium)">&#9889;</div>
-          <h3>Instant Launch</h3>
-          <p>Open any project in Terminal, VS Code, or Finder with one click. No more <code>cd ~/Projects/that-thing</code>.</p>
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row">
+        <div class="showcase-img">
+          <img src="img-quick-actions.png" alt="Quick Actions — open in Terminal, VS Code, or Finder">
         </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(34,197,94,0.1)">&#128154;</div>
-          <h3>Health Scores</h3>
-          <p>Every project gets a 0-100 health score based on git activity, dependency freshness, and test coverage.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(251,191,36,0.1)">&#128269;</div>
-          <h3>Smart Filters</h3>
-          <p>Filter by activity, health status, git state, language, or custom tags. Find anything in seconds.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(232,121,249,0.1)">&#128202;</div>
-          <h3>Code Wrapped</h3>
-          <p>Beautiful year-in-review stats with shareable cards. Your commits, streak, top language — ready to share.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(222,165,132,0.1)">&#128640;</div>
-          <h3>Rust-Powered</h3>
-          <p>Native Rust FFI core using libgit2. Git operations run at native speed without spawning shell processes.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(96,165,250,0.1)">&#128736;</div>
-          <h3>Tech Stack Detection</h3>
-          <p>Auto-detects 17+ languages and frameworks. Handles multi-tech projects like Flutter+Rust monorepos.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(34,197,94,0.1)">&#128230;</div>
-          <h3>Export & Git Sync</h3>
-          <p>Zip and push projects to GitHub with one click. Smart sync skips already-uploaded projects.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:var(--accent-medium)">&#128220;</div>
-          <h3>Release Management</h3>
-          <p>Version tracking, release pulse, one-click ship, and daily release habits — all from the status bar.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(232,121,249,0.1)">&#128640;</div>
-          <h3>Ship Readiness</h3>
-          <p>Checklist with auto-detect, manual, and AI-assisted checks. Smart release detection follows your workflow.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(251,191,36,0.1)">&#128274;</div>
-          <h3>Token-Based Auth</h3>
-          <p>Push to any GitHub repo using personal access tokens. Tokens are never stored or shown in error messages.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(34,197,94,0.1)">&#128737;</div>
-          <h3>Enterprise Compliance</h3>
-          <p>License detection, secret scanning, SBOM generation, and code signing checks. Audit in seconds.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon" style="background:rgba(96,165,250,0.1)">&#9000;</div>
-          <h3>CLI Tool</h3>
-          <p>Use <code>plauncher</code> from the terminal — add, search, open, pin, and check health. Parallel git status with <code>--json</code> output.</p>
+        <div class="showcase-text">
+          <div class="badge">Instant Launch</div>
+          <h3>Open anything, anywhere</h3>
+          <p>One click to open any project in Terminal, VS Code, or Finder. Pin your favorites, copy paths, and jump between projects in seconds.</p>
+          <p>No more <code>cd ~/Projects/that-thing</code>.</p>
         </div>
       </div>
     </div>
   </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row reverse">
+        <div class="showcase-img">
+          <img src="img-health.png" alt="Health Dashboard — scores across all projects">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">Health Scores</div>
+          <h3>Know what needs attention</h3>
+          <p>Every project gets a 0-100 health score based on git activity, dependency freshness, and test coverage.</p>
+          <p>See which projects are healthy, need attention, or are critical — at a glance.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row">
+        <div class="showcase-img">
+          <img src="img-filters.png" alt="Smart Filters — filter by language, activity, and tags">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">Smart Filters</div>
+          <h3>Find anything in seconds</h3>
+          <p>Filter by activity (this week, last month), health status, git state, language, or custom tags.</p>
+          <p>Auto-detects 17+ languages and frameworks including multi-tech projects like Flutter+Rust monorepos.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row reverse">
+        <div class="showcase-img">
+          <img src="img-year-review.png" alt="Year in Review — coding stats and visualizations">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">Code Wrapped</div>
+          <h3>Your year in review</h3>
+          <p>Beautiful stats dashboard with total commits, coding hours, longest streak, and top languages.</p>
+          <p>Shareable cards for your coding journey — branded and ready to share.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row">
+        <div class="showcase-img">
+          <img src="img-ai-insights.png" alt="AI Insights — actionable recommendations">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">AI Insights</div>
+          <h3>Smart recommendations</h3>
+          <p>Actionable insights powered by your project data — missing tests, lock files, unpushed commits, tech debt patterns.</p>
+          <p>No cloud, no telemetry. Everything runs locally.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row reverse">
+        <div class="showcase-img">
+          <img src="img-ship.png" alt="Ship Readiness — pre-release checklist">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">Ship Readiness</div>
+          <h3>Ship with confidence</h3>
+          <p>Pre-release checklist with auto-detect, manual, and AI-assisted checks. Version bumped? Tests passing? Clean working tree? All commits pushed?</p>
+          <p>Smart release process detection follows your project's own workflow.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row">
+        <div class="showcase-img">
+          <img src="img-release.png" alt="Release Management — version tracking and one-click ship">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">Release Management</div>
+          <h3>Version tracking, one-click ship</h3>
+          <p>Readiness breakdown with scoring across git, tests, CI/CD, dependencies, and code signing.</p>
+          <p>Detected release process with step-by-step execution — bump, commit, tag, push, GitHub Release.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row reverse">
+        <div class="showcase-img">
+          <img src="img-compliance.png" alt="Compliance — license, secrets, SBOM, signing">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">Enterprise Compliance</div>
+          <h3>Audit in seconds</h3>
+          <p>License detection, secret scanning, SBOM generation, .gitignore validation, and code signing checks.</p>
+          <p>Run an AI compliance audit with one click.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-row">
+        <div class="showcase-img">
+          <img src="img-ai-skills.png" alt="AI Skills — Claude integration with 50+ skills">
+        </div>
+        <div class="showcase-text">
+          <div class="badge">AI Skills</div>
+          <h3>Claude-powered project analysis</h3>
+          <p>Run Claude skills on any project — code review, dependency audit, test coverage analysis, architecture review, and more.</p>
+          <p>Built-in skills plus your own custom skills from <code>~/.claude/skills/</code>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </div>
 
   <!-- Comparison -->
   <section class="comparison" id="compare">
