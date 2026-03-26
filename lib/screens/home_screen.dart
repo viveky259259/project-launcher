@@ -40,6 +40,8 @@ import '../services/ai_service.dart';
 import '../services/version_detector.dart';
 import '../services/export_service.dart';
 import '../services/fresh_push_service.dart';
+import '../services/cli_install_service.dart';
+import '../widgets/home/cli_install_banner.dart';
 
 enum SortMode { lastOpened, name, lastChanged }
 enum ViewMode { list, folder }
@@ -79,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, String?> _projectVersions = {};
   Map<String, int> _unreleasedCommits = {};
   StreamSubscription<FileSystemEvent>? _projectsFileWatcher;
+  bool _showCliInstallBanner = false;
 
   ProjectLauncherAppState? get _appState => ProjectLauncherApp.of(context);
 
@@ -91,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadProStatus();
     _loadAIInsightsFlags();
     _checkFirstRun();
+    _checkCliInstall();
     _watchProjectsFile();
     BackgroundMonitor.addListener(_onMonitorUpdate);
     // No periodic refresh — data loads once on init, then on user action
@@ -124,6 +128,13 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       // Already has projects, just mark as done
       await prefs.setBool('hasCompletedOnboarding', true);
+    }
+  }
+
+  Future<void> _checkCliInstall() async {
+    final shouldPrompt = await CliInstallService.shouldPrompt();
+    if (mounted && shouldPrompt) {
+      setState(() => _showCliInstallBanner = true);
     }
   }
 
@@ -1456,6 +1467,13 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // Release pulse banner
         _buildReleasePulse(cs),
+
+        // CLI install banner
+        if (_showCliInstallBanner)
+          CliInstallBanner(
+            onInstalled: () => setState(() => _showCliInstallBanner = false),
+            onDismissed: () => setState(() => _showCliInstallBanner = false),
+          ),
 
         // Pinned section
         if (pinned.isNotEmpty) ...[
