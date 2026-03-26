@@ -32,9 +32,11 @@ class CliInstallService {
       if (result.exitCode == 0) return true;
 
       // Fallback: check common install locations directly
+      final home = Platform.environment['HOME'] ?? '';
       final paths = [
         '/usr/local/bin/$_binaryName',
         '/opt/homebrew/bin/$_binaryName',
+        '$home/.local/bin/$_binaryName',
       ];
       for (final path in paths) {
         if (await File(path).exists()) return true;
@@ -179,32 +181,26 @@ class CliInstallService {
       onProgress?.call('Extracting...');
       await Process.run('tar', ['-xzf', '$tmpDir/plauncher.tar.gz', '-C', tmpDir]);
 
-      // Install to /usr/local/bin
-      onProgress?.call('Installing to /usr/local/bin...');
+      // Install to ~/.local/bin (no admin permission needed)
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final installDir = '$home/.local/bin';
+      await Directory(installDir).create(recursive: true);
+
+      onProgress?.call('Installing to ~/.local/bin...');
       final cpResult = await Process.run(
         'cp',
-        ['$tmpDir/$_binaryName', '/usr/local/bin/$_binaryName'],
+        ['$tmpDir/$_binaryName', '$installDir/$_binaryName'],
       );
 
       if (cpResult.exitCode != 0) {
-        // Needs elevated privileges — use osascript for native admin prompt
-        onProgress?.call('Requesting admin permission...');
-        final sudoResult = await Process.run('osascript', [
-          '-e',
-          'do shell script "cp $tmpDir/$_binaryName /usr/local/bin/$_binaryName && chmod +x /usr/local/bin/$_binaryName" with administrator privileges',
-        ]);
-
-        if (sudoResult.exitCode != 0) {
-          return CliInstallResult(
-            success: false,
-            message: 'Installation failed — permission denied',
-            error: sudoResult.stderr.toString(),
-          );
-        }
-      } else {
-        // Ensure executable
-        await Process.run('chmod', ['+x', '/usr/local/bin/$_binaryName']);
+        return CliInstallResult(
+          success: false,
+          message: 'Failed to copy binary to $installDir',
+          error: cpResult.stderr.toString(),
+        );
       }
+
+      await Process.run('chmod', ['+x', '$installDir/$_binaryName']);
 
       // Cleanup
       await Process.run('rm', ['-rf', tmpDir]);
