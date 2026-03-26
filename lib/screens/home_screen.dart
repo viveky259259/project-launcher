@@ -1537,21 +1537,36 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildGridView() {
     final projects = _sortedProjects;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final crossAxisCount = constraints.maxWidth > 900 ? 5 : constraints.maxWidth > 600 ? 4 : 3;
-        return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.88,
+    return Column(
+      children: [
+        // CLI install banner
+        if (_showCliInstallBanner)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: CliInstallBanner(
+              onInstalled: () => setState(() => _showCliInstallBanner = false),
+              onDismissed: () => setState(() => _showCliInstallBanner = false),
+            ),
           ),
-          itemCount: projects.length,
-          itemBuilder: (context, index) => _buildGridCard(projects[index]),
-        );
-      },
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final crossAxisCount = constraints.maxWidth > 900 ? 5 : constraints.maxWidth > 600 ? 4 : 3;
+              return GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.88,
+                ),
+                itemCount: projects.length,
+                itemBuilder: (context, index) => _buildGridCard(projects[index]),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
