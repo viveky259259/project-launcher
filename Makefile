@@ -1,4 +1,4 @@
-.PHONY: all rust flutter build install clean bootstrap
+.PHONY: all rust flutter build install clean bootstrap release-patch release-minor release-major release-dry
 
 # Default target
 all: build
@@ -53,3 +53,16 @@ test:
 # Run static analysis on all packages
 analyze:
 	melos run analyze
+
+# Release targets
+release-patch:
+	./release.sh patch
+
+release-minor:
+	./release.sh minor
+
+release-major:
+	./release.sh major
+
+release-dry:
+	./release.sh patch --dry-run
