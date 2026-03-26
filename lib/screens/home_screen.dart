@@ -1311,6 +1311,30 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _showExportDialog,
           ),
 
+          // CLI Install
+          _HeaderButton(
+            icon: Icons.terminal_rounded,
+            tooltip: _showCliInstallBanner ? 'Install plauncher CLI' : 'plauncher CLI',
+            onPressed: () async {
+              final installed = await CliInstallService.isInstalled();
+              if (installed) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('plauncher CLI is installed'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } else {
+                // Reset "don't ask" and show banner
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('cli_install_dont_ask');
+                if (mounted) setState(() => _showCliInstallBanner = true);
+              }
+            },
+          ),
+
           // Settings
           _HeaderButton(
             icon: Icons.palette_outlined,

@@ -32,8 +32,9 @@ class HomeSidePanel extends StatelessWidget {
 
     return Container(
       width: 240,
-      padding: const EdgeInsets.all(16),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      child: SingleChildScrollView(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // System Health summary
@@ -277,6 +278,7 @@ class HomeSidePanel extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
