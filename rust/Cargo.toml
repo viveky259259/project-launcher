@@ -7,8 +7,8 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-# Git operations
-git2 = "0.19"
+# Git operations (use macOS native TLS to avoid OpenSSL cross-compile issues)
+git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
 
 # File system
 walkdir = "2.5"
