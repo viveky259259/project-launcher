@@ -93,8 +93,22 @@ class PlatformHelper {
 
   /// Open a path in VS Code
   static Future<void> openInVSCode(String path) async {
+    // First, check if `code` exists anywhere in PATH
+    final envPath = Platform.environment['PATH'] ?? '';
+    for (final dir in envPath.split(':')) {
+      if (dir.isEmpty) continue;
+      final codeBin = File('$dir/code');
+      if (codeBin.existsSync()) {
+        try {
+          final result = await Process.run('$dir/code', [path]);
+          if (result.exitCode == 0) return;
+        } catch (_) {}
+        break;
+      }
+    }
+
     if (Platform.isMacOS) {
-      // Try known VS Code app bundle locations first (most reliable on macOS)
+      // Fallback: open via app bundle name
       final appNames = [
         'Visual Studio Code',
         'Visual Studio Code - Insiders',
@@ -106,22 +120,8 @@ class PlatformHelper {
           if (result.exitCode == 0) return;
         } catch (_) {}
       }
-
-      // Try `code` CLI at common paths (shell PATH may not be available in app bundle)
-      final codePaths = [
-        '/usr/local/bin/code',
-        '/opt/homebrew/bin/code',
-        '$homeDir/.local/bin/code',
-        'code', // last resort — relies on PATH
-      ];
-      for (final codePath in codePaths) {
-        try {
-          final result = await Process.run(codePath, [path]);
-          if (result.exitCode == 0) return;
-        } catch (_) {}
-      }
     } else {
-      // Linux / Windows
+      // Linux / Windows — try bare `code` command
       try {
         final result = await Process.run('code', [path]);
         if (result.exitCode == 0) return;
