@@ -93,14 +93,39 @@ class PlatformHelper {
 
   /// Open a path in VS Code
   static Future<void> openInVSCode(String path) async {
-    try {
-      final result = await Process.run('code', [path]);
-      if (result.exitCode == 0) return;
-    } catch (_) {}
-
-    // macOS fallback: open via app
     if (Platform.isMacOS) {
-      await Process.run('open', ['-a', 'Visual Studio Code', path]);
+      // Try known VS Code app bundle locations first (most reliable on macOS)
+      final appNames = [
+        'Visual Studio Code',
+        'Visual Studio Code - Insiders',
+        'VSCodium',
+      ];
+      for (final app in appNames) {
+        try {
+          final result = await Process.run('open', ['-a', app, path]);
+          if (result.exitCode == 0) return;
+        } catch (_) {}
+      }
+
+      // Try `code` CLI at common paths (shell PATH may not be available in app bundle)
+      final codePaths = [
+        '/usr/local/bin/code',
+        '/opt/homebrew/bin/code',
+        '$homeDir/.local/bin/code',
+        'code', // last resort — relies on PATH
+      ];
+      for (final codePath in codePaths) {
+        try {
+          final result = await Process.run(codePath, [path]);
+          if (result.exitCode == 0) return;
+        } catch (_) {}
+      }
+    } else {
+      // Linux / Windows
+      try {
+        final result = await Process.run('code', [path]);
+        if (result.exitCode == 0) return;
+      } catch (_) {}
     }
   }
 
