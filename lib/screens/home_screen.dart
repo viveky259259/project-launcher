@@ -1049,11 +1049,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     onTap: () {}, // Absorb taps on the panel itself
                     child: ThemeSwitcherPanel(
                       currentTheme: appState?.currentTheme ?? AppTheme.dark,
+                      currentSkin: appState?.currentSkin ?? const DefaultSkin(),
+                      allSkins: ProjectLauncherAppState.allSkins,
                       unlockedThemes: appState?.unlockedThemes ?? [],
                       isPro: _isPro,
                       onThemeChanged: (theme) {
                         appState?.setTheme(theme);
                         setState(() => _showThemeSwitcher = false);
+                      },
+                      onSkinChanged: (skin) {
+                        appState?.setSkin(skin);
+                        setState(() {});
                       },
                       onClose: () => setState(() => _showThemeSwitcher = false),
                       onEarnThemes: () {

@@ -113,19 +113,48 @@ class ProjectLauncherAppState extends State<ProjectLauncherApp> {
   Future<void> _loadSkinPreference() async {
     final prefs = await SharedPreferences.getInstance();
     final skinId = prefs.getString('appSkin') ?? 'default';
-    final skin = allSkins.firstWhere(
+    var skin = allSkins.firstWhere(
       (s) => s.metadata.id == skinId,
       orElse: () => const DefaultSkin(),
     );
+
+    // Validate premium access
+    if (!isPro &&
+        skin.metadata.requiresUnlock &&
+        skin.metadata.unlockRewardId != null &&
+        !unlockedThemes.contains(skin.metadata.unlockRewardId)) {
+      skin = const DefaultSkin();
+    }
+
     if (mounted) {
       setState(() => currentSkin = skin);
     }
   }
 
+  bool canUseSkin(AppSkin skin) {
+    if (!skin.metadata.requiresUnlock) return true;
+    if (isPro) return true;
+    if (skin.metadata.unlockRewardId != null &&
+        unlockedThemes.contains(skin.metadata.unlockRewardId)) return true;
+    return false;
+  }
+
   Future<void> setSkin(AppSkin skin) async {
+    if (!canUseSkin(skin)) return;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('appSkin', skin.metadata.id);
-    if (mounted) {
+
+    // If the new skin doesn't support the current color theme, switch to its first supported theme
+    if (!skin.supportedThemes.contains(currentTheme)) {
+      await prefs.setInt('appTheme', skin.supportedThemes.first.index);
+      if (mounted) {
+        setState(() {
+          currentSkin = skin;
+          currentTheme = skin.supportedThemes.first;
+        });
+      }
+    } else if (mounted) {
       setState(() => currentSkin = skin);
     }
   }

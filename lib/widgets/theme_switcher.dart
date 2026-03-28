@@ -3,9 +3,12 @@ import 'package:launcher_theme/launcher_theme.dart';
 
 class ThemeSwitcherPanel extends StatelessWidget {
   final AppTheme currentTheme;
+  final AppSkin currentSkin;
+  final List<AppSkin> allSkins;
   final List<String> unlockedThemes;
   final bool isPro;
   final ValueChanged<AppTheme> onThemeChanged;
+  final ValueChanged<AppSkin> onSkinChanged;
   final VoidCallback onClose;
   final VoidCallback onEarnThemes;
   final VoidCallback onUnlockWithPro;
@@ -13,13 +16,24 @@ class ThemeSwitcherPanel extends StatelessWidget {
   const ThemeSwitcherPanel({
     super.key,
     required this.currentTheme,
+    required this.currentSkin,
+    required this.allSkins,
     required this.unlockedThemes,
     required this.isPro,
     required this.onThemeChanged,
+    required this.onSkinChanged,
     required this.onClose,
     required this.onEarnThemes,
     required this.onUnlockWithPro,
   });
+
+  bool _isSkinUnlocked(AppSkin skin) {
+    if (!skin.metadata.requiresUnlock) return true;
+    if (isPro) return true;
+    if (skin.metadata.unlockRewardId != null &&
+        unlockedThemes.contains(skin.metadata.unlockRewardId)) return true;
+    return false;
+  }
 
   bool _isThemeUnlocked(AppTheme theme) {
     if (!theme.requiresUnlock) return true;
@@ -79,11 +93,53 @@ class ThemeSwitcherPanel extends StatelessWidget {
             ),
           ),
 
-          // Theme options
+          // Skin options
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              'SKIN',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Column(
-              children: AppTheme.values.map((theme) {
+              children: allSkins.map((skin) {
+                final isActive = currentSkin.metadata.id == skin.metadata.id;
+                final isUnlocked = _isSkinUnlocked(skin);
+
+                return _SkinRow(
+                  skin: skin,
+                  isActive: isActive,
+                  isUnlocked: isUnlocked,
+                  onTap: isUnlocked ? () => onSkinChanged(skin) : null,
+                );
+              }).toList(),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Color theme section header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              'COLOR THEME',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+
+          // Theme options (only show themes supported by current skin)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Column(
+              children: currentSkin.supportedThemes.map((theme) {
                 final isActive = currentTheme == theme;
                 final isUnlocked = _isThemeUnlocked(theme);
 
@@ -279,6 +335,119 @@ class _ThemeRowState extends State<_ThemeRow> {
                 const Icon(Icons.check_circle, size: 18, color: AppColors.accent)
               else if (!widget.isUnlocked)
                 Icon(Icons.lock, size: 16, color: cs.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SkinRow extends StatefulWidget {
+  final AppSkin skin;
+  final bool isActive;
+  final bool isUnlocked;
+  final VoidCallback? onTap;
+
+  const _SkinRow({
+    required this.skin,
+    required this.isActive,
+    required this.isUnlocked,
+    this.onTap,
+  });
+
+  @override
+  State<_SkinRow> createState() => _SkinRowState();
+}
+
+class _SkinRowState extends State<_SkinRow> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final meta = widget.skin.metadata;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: widget.isActive
+                ? AppColors.accent.withValues(alpha: 0.1)
+                : _isHovered
+                    ? cs.onSurface.withValues(alpha: 0.03)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: widget.isActive
+                ? Border.all(color: AppColors.accent.withValues(alpha: 0.5))
+                : Border.all(color: Colors.transparent),
+          ),
+          child: Row(
+            children: [
+              // Skin icon
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: meta.previewColors.last.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(meta.icon, size: 16, color: meta.previewColors.last),
+              ),
+              const SizedBox(width: 10),
+
+              // Label
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      meta.name,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: widget.isActive ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      widget.isUnlocked ? meta.description : 'Pro',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: widget.isUnlocked ? cs.onSurfaceVariant : AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Preview dots
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: meta.previewColors.map((c) => Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(left: 2),
+                  decoration: BoxDecoration(
+                    color: c,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: cs.onSurface.withValues(alpha: 0.15),
+                      width: 0.5,
+                    ),
+                  ),
+                )).toList(),
+              ),
+              const SizedBox(width: 6),
+
+              // Status icon
+              if (widget.isActive)
+                const Icon(Icons.check_circle, size: 16, color: AppColors.accent)
+              else if (!widget.isUnlocked)
+                Icon(Icons.lock, size: 14, color: cs.onSurfaceVariant),
             ],
           ),
         ),
