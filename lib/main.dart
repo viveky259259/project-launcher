@@ -52,13 +52,20 @@ class ProjectLauncherApp extends StatefulWidget {
 
 class ProjectLauncherAppState extends State<ProjectLauncherApp> {
   AppTheme currentTheme = AppTheme.dark;
+  AppSkin currentSkin = const DefaultSkin();
   List<String> unlockedThemes = [];
   bool isPro = false;
+
+  /// All available skins (order matters for the switcher UI).
+  static const List<AppSkin> allSkins = [
+    DefaultSkin(),
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadThemePreference();
+    _loadSkinPreference();
     _setupPremiumListener();
   }
 
@@ -99,6 +106,26 @@ class ProjectLauncherAppState extends State<ProjectLauncherApp> {
     }
   }
 
+  Future<void> _loadSkinPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final skinId = prefs.getString('appSkin') ?? 'default';
+    final skin = allSkins.firstWhere(
+      (s) => s.metadata.id == skinId,
+      orElse: () => const DefaultSkin(),
+    );
+    if (mounted) {
+      setState(() => currentSkin = skin);
+    }
+  }
+
+  Future<void> setSkin(AppSkin skin) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('appSkin', skin.metadata.id);
+    if (mounted) {
+      setState(() => currentSkin = skin);
+    }
+  }
+
   Future<void> setTheme(AppTheme theme) async {
     if (!isPro &&
         theme.requiresUnlock &&
@@ -117,11 +144,14 @@ class ProjectLauncherAppState extends State<ProjectLauncherApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Project Launcher',
-      debugShowCheckedModeBanner: false,
-      theme: currentTheme.themeData,
-      home: const HomeScreen(),
+    return SkinProvider(
+      skin: currentSkin,
+      child: MaterialApp(
+        title: 'Project Launcher',
+        debugShowCheckedModeBanner: false,
+        theme: currentSkin.buildThemeData(currentTheme),
+        home: const HomeScreen(),
+      ),
     );
   }
 }

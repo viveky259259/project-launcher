@@ -80,21 +80,37 @@ class _ProjectCardState extends State<ProjectCard> {
     if (hs == null) return Colors.transparent;
     final lastCommit = hs.details.lastCommitDate;
     if (lastCommit == null) return Colors.transparent;
+    final skin = AppSkin.maybeOf(context);
     final days = DateTime.now().difference(lastCommit).inDays;
-    if (days <= 1) return AppColors.success;       // today/yesterday
-    if (days <= 7) return AppColors.accent;         // this week
-    if (days <= 30) return AppColors.warning;       // this month
-    return Colors.transparent;                       // older — no dot
+    if (days <= 1) return skin?.colors.success ?? AppColors.success;
+    if (days <= 7) return skin?.colors.accent ?? AppColors.accent;
+    if (days <= 30) return skin?.colors.warning ?? AppColors.warning;
+    return Colors.transparent;
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
     final project = widget.project;
     final stack = widget.projectStack;
     final staleness = _formatStaleness();
     final relTime = _relativeTime();
     final dotColor = _activityDotColor();
+
+    // Read layout values from skin (with defaults for backward compat)
+    final cardPaddingH = skin?.spacing.cardPaddingH ?? 16.0;
+    final cardPaddingV = skin?.spacing.cardPaddingV ?? 12.0;
+    final cardMargin = skin?.spacing.cardMarginBottom ?? 6.0;
+    final cardRadius = skin?.radius.card ?? AppRadius.lg;
+    final hoverDuration = skin?.animations.hoverDuration ?? const Duration(milliseconds: 150);
+    final showBadges = skin?.cardStyle.showBadges ?? true;
+    final showTags = skin?.cardStyle.showTags ?? true;
+    final showBranch = skin?.cardStyle.showBranchInline ?? true;
+    final showHealth = skin?.cardStyle.showHealthDot ?? true;
+    final showActions = skin?.cardStyle.showActionIcons ?? true;
+    final maxTags = skin?.cardStyle.maxVisibleTags ?? 2;
+    final skinAccent = skin?.colors.accent ?? AppColors.accent;
 
     return GestureDetector(
       onTap: widget.onSettings,
@@ -102,17 +118,17 @@ class _ProjectCardState extends State<ProjectCard> {
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        duration: hoverDuration,
+        margin: EdgeInsets.only(bottom: cardMargin),
+        padding: EdgeInsets.symmetric(horizontal: cardPaddingH, vertical: cardPaddingV),
         decoration: BoxDecoration(
           color: _isHovered
               ? cs.surfaceContainerHighest
               : cs.surface,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
+          borderRadius: BorderRadius.circular(cardRadius),
           border: Border.all(
             color: project.isPinned
-                ? AppColors.accent.withValues(alpha: 0.4)
+                ? skinAccent.withValues(alpha: 0.4)
                 : _isHovered
                     ? cs.outline.withValues(alpha: 0.5)
                     : cs.outline.withValues(alpha: 0.15),
@@ -161,7 +177,7 @@ class _ProjectCardState extends State<ProjectCard> {
                       ),
                       if (project.isPinned) ...[
                         const SizedBox(width: 6),
-                        Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                        Icon(Icons.star_rounded, size: 14, color: skinAccent),
                       ],
                       if (relTime.isNotEmpty) ...[
                         const SizedBox(width: 8),
@@ -191,20 +207,20 @@ class _ProjectCardState extends State<ProjectCard> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (widget.branchName != null) ...[
+                      if (showBranch && widget.branchName != null) ...[
                         const SizedBox(width: 8),
-                        Icon(Icons.fork_right_rounded, size: 12, color: AppColors.accent.withValues(alpha: 0.7)),
+                        Icon(Icons.fork_right_rounded, size: 12, color: skinAccent.withValues(alpha: 0.7)),
                         const SizedBox(width: 2),
                         Text(
                           widget.branchName!,
                           style: AppTypography.mono(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.accent.withValues(alpha: 0.8),
+                            color: skinAccent.withValues(alpha: 0.8),
                           ),
                         ),
                       ],
-                      if (widget.healthScore != null) ...[
+                      if (showHealth && widget.healthScore != null) ...[
                         const SizedBox(width: 8),
                         _MicroHealthDot(score: widget.healthScore!.details.totalScore),
                       ],
@@ -226,14 +242,14 @@ class _ProjectCardState extends State<ProjectCard> {
                         const SizedBox(width: 6),
                         Tooltip(
                           message: 'Has AI insights',
-                          child: Icon(Icons.auto_awesome_rounded, size: 13, color: AppColors.accent.withValues(alpha: 0.8)),
+                          child: Icon(Icons.auto_awesome_rounded, size: 13, color: skinAccent.withValues(alpha: 0.8)),
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 6),
                   // Git status + Tech stack badges + staleness + tags
-                  Row(
+                  if (showBadges) Row(
                     children: [
                       // Git icon
                       Padding(
@@ -258,10 +274,10 @@ class _ProjectCardState extends State<ProjectCard> {
                           ),
                         ),
                       ],
-                      if (project.tags.isNotEmpty) ...[
+                      if (showTags && project.tags.isNotEmpty) ...[
                         if (stack.all.isNotEmpty || staleness.isNotEmpty)
                           const SizedBox(width: 4),
-                        ...project.tags.take(2).map((tag) => Padding(
+                        ...project.tags.take(maxTags).map((tag) => Padding(
                           padding: const EdgeInsets.only(right: 4),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -283,13 +299,13 @@ class _ProjectCardState extends State<ProjectCard> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.accent.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(AppRadius.sm),
-                            border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
+                            color: skinAccent.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(skin?.radius.badge ?? AppRadius.sm),
+                            border: Border.all(color: skinAccent.withValues(alpha: 0.2)),
                           ),
                           child: Text(
                             'v${widget.version}',
-                            style: AppTypography.mono(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.accent),
+                            style: AppTypography.mono(fontSize: skin?.typography.badgeSize ?? 10, fontWeight: FontWeight.w600, color: skinAccent),
                           ),
                         ),
                       ],
@@ -300,9 +316,9 @@ class _ProjectCardState extends State<ProjectCard> {
             ),
 
             // Action buttons
-            AnimatedOpacity(
+            if (showActions) AnimatedOpacity(
               opacity: _isHovered ? 1.0 : 0.4,
-              duration: const Duration(milliseconds: 150),
+              duration: hoverDuration,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -324,7 +340,7 @@ class _ProjectCardState extends State<ProjectCard> {
                   _ActionIcon(
                     icon: project.isPinned ? Icons.star_rounded : Icons.star_border_rounded,
                     tooltip: project.isPinned ? 'Unpin' : 'Pin',
-                    color: project.isPinned ? AppColors.accent : null,
+                    color: project.isPinned ? skinAccent : null,
                     onPressed: widget.onTogglePin,
                   ),
                   if (widget.onSettings != null)
@@ -368,24 +384,28 @@ class _StackedIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = stack.primary;
+    final skin = AppSkin.maybeOf(context);
+    final containerSize = skin?.cardStyle.listIconContainerSize ?? 38.0;
+    final iconSize = skin?.cardStyle.listIconSize ?? 20.0;
+    final iconRadius = skin?.cardStyle.listIconRadius ?? 10.0;
 
     return SizedBox(
-      width: 42,
-      height: 42,
+      width: containerSize + 4,
+      height: containerSize + 4,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           // Primary icon
           Container(
-            width: 38,
-            height: 38,
+            width: containerSize,
+            height: containerSize,
             decoration: BoxDecoration(
               color: primary.color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(iconRadius),
             ),
             child: Icon(
               primary.icon,
-              size: 20,
+              size: iconSize,
               color: primary.color,
             ),
           ),
