@@ -337,11 +337,48 @@
       background: var(--accent-soft); color: var(--accent);
     }
 
+    /* Skin cards */
+    .skin-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px;
+      margin-top: 40px;
+    }
+    .skin-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px 20px; text-align: center;
+      transition: all 0.25s ease;
+    }
+    .skin-card:hover {
+      border-color: var(--border-hover); transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.06);
+    }
+    .skin-card .skin-preview {
+      width: 48px; height: 48px; border-radius: 12px;
+      margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+    .skin-card h4 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .skin-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+    .skin-card .skin-dots {
+      display: flex; justify-content: center; gap: 4px; margin-top: 12px;
+    }
+    .skin-card .skin-dots span {
+      width: 10px; height: 10px; border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .skin-label {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; margin-top: 8px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .skin-label.free { background: rgba(34,197,94,0.1); color: #22c55e; }
+    .skin-label.pro { background: rgba(251,191,36,0.1); color: #d97706; }
+
     /* Responsive */
     @media (max-width: 768px) {
       .feature-grid { grid-template-columns: 1fr; }
       .steps { grid-template-columns: 1fr; gap: 40px; }
       .showcase-row, .showcase-row.reverse { grid-template-columns: 1fr; direction: ltr; }
+      .skin-grid { grid-template-columns: repeat(2, 1fr); }
       .nav-links { display: none; }
       .comparison { overflow-x: auto; }
     }
@@ -382,7 +419,7 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container">
-      <div class="hero-badge">v2.3.1 &middot; Flutter + Rust FFI <span>macOS</span></div>
+      <div class="hero-badge">v2.3.2 &middot; Flutter + Rust FFI <span>macOS</span></div>
       <h1>The dashboard for your<br>entire <em>dev life</em></h1>
       <p class="hero-sub">
         Every project, every language, every tool — one place.
@@ -594,6 +631,78 @@
           <h3>Claude-powered project analysis</h3>
           <p>Run Claude skills on any project — code review, dependency audit, test coverage analysis, architecture review, and more.</p>
           <p>Built-in skills plus your own custom skills from <code>~/.claude/skills/</code>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase" style="padding: 100px 0;">
+    <div class="container">
+      <p class="section-label" style="text-align:center">New in v2.3.2</p>
+      <h2 style="font-family:'DM Serif Display',Georgia,serif; font-size:40px; font-weight:400; text-align:center; margin-bottom:12px;">Make it yours</h2>
+      <p style="text-align:center; color:var(--text-secondary); font-size:16px; margin-bottom:0;">
+        5 visual skins that change the entire look and feel — not just colors.
+      </p>
+
+      <div class="skin-grid">
+        <div class="skin-card">
+          <div class="skin-preview" style="background:rgba(34,211,238,0.1);">&#127912;</div>
+          <h4>Default</h4>
+          <p>The classic look. Rounded cards, cyan accent, balanced density.</p>
+          <div class="skin-dots">
+            <span style="background:#000"></span>
+            <span style="background:#111"></span>
+            <span style="background:#22D3EE"></span>
+          </div>
+          <span class="skin-label free">Free</span>
+        </div>
+
+        <div class="skin-card">
+          <div class="skin-preview" style="background:rgba(139,157,175,0.1);">&#9752;</div>
+          <h4>Minimal</h4>
+          <p>Extra whitespace, no badges. Just names, dots, and branches.</p>
+          <div class="skin-dots">
+            <span style="background:#0A0A0A"></span>
+            <span style="background:#141414"></span>
+            <span style="background:#8B9DAF"></span>
+          </div>
+          <span class="skin-label free">Free</span>
+        </div>
+
+        <div class="skin-card">
+          <div class="skin-preview" style="background:rgba(74,144,217,0.1);">&#128188;</div>
+          <h4>Corporate</h4>
+          <p>Sharp corners, dense rows, Office blue. Feels like VS Code meets Excel.</p>
+          <div class="skin-dots">
+            <span style="background:#1E1E1E"></span>
+            <span style="background:#252526"></span>
+            <span style="background:#4A90D9"></span>
+          </div>
+          <span class="skin-label pro">Pro</span>
+        </div>
+
+        <div class="skin-card">
+          <div class="skin-preview" style="background:rgba(0,255,255,0.08);">&#127918;</div>
+          <h4>Gaming</h4>
+          <p>Neon glow borders, bold typography, cards that lift on hover. HUD vibes.</p>
+          <div class="skin-dots">
+            <span style="background:#0A0A0F"></span>
+            <span style="background:#12121A"></span>
+            <span style="background:#00FFFF"></span>
+          </div>
+          <span class="skin-label pro">Pro</span>
+        </div>
+
+        <div class="skin-card">
+          <div class="skin-preview" style="background:rgba(51,255,51,0.08);">&#128421;</div>
+          <h4>Terminal</h4>
+          <p>Monospace everything, zero rounded corners, green-on-black. Hacker mode.</p>
+          <div class="skin-dots">
+            <span style="background:#000"></span>
+            <span style="background:#111"></span>
+            <span style="background:#33FF33"></span>
+          </div>
+          <span class="skin-label pro">Pro</span>
         </div>
       </div>
     </div>
