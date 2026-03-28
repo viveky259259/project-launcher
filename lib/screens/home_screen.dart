@@ -1830,7 +1830,24 @@ class _GridProjectCardState extends State<_GridProjectCard> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
     final primary = widget.stack.primary;
+
+    final gridRadius = skin?.radius.gridCard ?? 16.0;
+    final hoverDuration = skin?.animations.hoverDuration ?? const Duration(milliseconds: 150);
+    final iconSize = skin?.cardStyle.gridIconSize ?? 28.0;
+    final iconContainerSize = skin?.cardStyle.gridIconContainerSize ?? 56.0;
+    final iconRadius = skin?.cardStyle.gridIconRadius ?? 14.0;
+    final skinAccent = skin?.colors.accent ?? AppColors.accent;
+    final skinWarning = skin?.colors.warning ?? AppColors.warning;
+    final skinSuccess = skin?.colors.success ?? AppColors.success;
+    final skinError = skin?.colors.error ?? AppColors.error;
+    final showBranch = skin?.cardStyle.showBranchInline ?? true;
+    final showTags = skin?.cardStyle.showTags ?? true;
+    final showHealth = skin?.cardStyle.showHealthDot ?? true;
+    final showActions = skin?.cardStyle.showActionIcons ?? true;
+    final maxTags = skin?.cardStyle.maxVisibleTags ?? 2;
+    final cardPadding = skin?.spacing.md ?? 16.0;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -1839,10 +1856,10 @@ class _GridProjectCardState extends State<_GridProjectCard> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: hoverDuration,
           decoration: BoxDecoration(
             color: _isHovered ? cs.surfaceContainerHighest : cs.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(gridRadius),
             border: Border.all(
               color: _isHovered
                   ? cs.outline.withValues(alpha: 0.4)
@@ -1856,23 +1873,23 @@ class _GridProjectCardState extends State<_GridProjectCard> {
             children: [
               // Main content
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(cardPadding),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Large icon
                     Container(
-                      width: 56,
-                      height: 56,
+                      width: iconContainerSize,
+                      height: iconContainerSize,
                       decoration: BoxDecoration(
                         color: primary.color.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(iconRadius),
                       ),
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: [
                           Center(
-                            child: Icon(primary.icon, size: 28, color: primary.color),
+                            child: Icon(primary.icon, size: iconSize, color: primary.color),
                           ),
                           // Secondary badge
                           if (widget.stack.secondary.isNotEmpty)
@@ -1925,17 +1942,17 @@ class _GridProjectCardState extends State<_GridProjectCard> {
                                 : cs.onSurfaceVariant.withValues(alpha: 0.5),
                           ),
                         ),
-                        if (widget.healthScore != null) ...[
+                        if (showHealth && widget.healthScore != null) ...[
                           const SizedBox(width: 6),
                           Container(
                             width: 6,
                             height: 6,
                             decoration: BoxDecoration(
                               color: widget.healthScore! >= 80
-                                  ? AppColors.success
+                                  ? skinSuccess
                                   : widget.healthScore! >= 50
-                                      ? AppColors.warning
-                                      : AppColors.error,
+                                      ? skinWarning
+                                      : skinError,
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -1943,30 +1960,30 @@ class _GridProjectCardState extends State<_GridProjectCard> {
                         if (widget.hasUncommitted)
                           Padding(
                             padding: const EdgeInsets.only(left: 4),
-                            child: Icon(Icons.edit_note_rounded, size: 12, color: AppColors.warning.withValues(alpha: 0.8)),
+                            child: Icon(Icons.edit_note_rounded, size: 12, color: skinWarning.withValues(alpha: 0.8)),
                           ),
                         if (widget.hasUnpushed)
                           Padding(
                             padding: const EdgeInsets.only(left: 3),
-                            child: Icon(Icons.cloud_upload_outlined, size: 11, color: AppColors.warning.withValues(alpha: 0.8)),
+                            child: Icon(Icons.cloud_upload_outlined, size: 11, color: skinWarning.withValues(alpha: 0.8)),
                           ),
                       ],
                     ),
                     // Branch name
-                    if (widget.branchName != null) ...[
+                    if (showBranch && widget.branchName != null) ...[
                       const SizedBox(height: 2),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.fork_right_rounded, size: 10, color: AppColors.accent.withValues(alpha: 0.6)),
+                          Icon(Icons.fork_right_rounded, size: 10, color: skinAccent.withValues(alpha: 0.6)),
                           const SizedBox(width: 2),
                           Text(
                             widget.branchName!,
                             style: AppTypography.mono(
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.accent.withValues(alpha: 0.7),
+                              color: skinAccent.withValues(alpha: 0.7),
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1975,13 +1992,13 @@ class _GridProjectCardState extends State<_GridProjectCard> {
                       ),
                     ],
                     // Tags
-                    if (widget.project.tags.isNotEmpty) ...[
+                    if (showTags && widget.project.tags.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Wrap(
                         alignment: WrapAlignment.center,
                         spacing: 3,
                         runSpacing: 2,
-                        children: widget.project.tags.take(2).map((tag) => Container(
+                        children: widget.project.tags.take(maxTags).map((tag) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
                             color: cs.onSurface.withValues(alpha: 0.06),
@@ -2049,11 +2066,11 @@ class _GridProjectCardState extends State<_GridProjectCard> {
                 Positioned(
                   top: 8,
                   right: 8,
-                  child: Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                  child: Icon(Icons.star_rounded, size: 14, color: skinAccent),
                 ),
 
               // Hover actions (bottom)
-              if (_isHovered)
+              if (showActions && _isHovered)
                 Positioned(
                   bottom: 8,
                   left: 0,

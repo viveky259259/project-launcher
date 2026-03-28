@@ -66,10 +66,10 @@ class _StatusBarState extends State<StatusBar> {
     return '';
   }
 
-  Color get _releaseStatusColor {
-    if (widget.unreleasedCount == 0) return AppColors.success;
-    if (widget.unreleasedCount >= 3) return AppColors.error;
-    return AppColors.warning;
+  Color _releaseStatusColor(AppSkin? skin) {
+    if (widget.unreleasedCount == 0) return skin?.colors.success ?? AppColors.success;
+    if (widget.unreleasedCount >= 3) return skin?.colors.error ?? AppColors.error;
+    return skin?.colors.warning ?? AppColors.warning;
   }
 
   String get _releaseStatusText {
@@ -86,13 +86,19 @@ class _StatusBarState extends State<StatusBar> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
+    final skinSuccess = skin?.colors.success ?? AppColors.success;
+    final skinWarning = skin?.colors.warning ?? AppColors.warning;
+    final skinAccent = skin?.colors.accent ?? AppColors.accent;
+    final statusHeight = skin?.spacing.statusBarHeight ?? 28.0;
+    final statusFontSize = skin?.typography.statusBarSize ?? 10.0;
     final ffiAvailable = NativeLib.isAvailable;
     final isChecking = BackgroundMonitor.status == MonitorStatus.checking;
     final hasReleaseInfo = widget.unreleasedCount > 0 || widget.readyToShipCount > 0;
 
     return Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: statusHeight,
+      padding: EdgeInsets.symmetric(horizontal: skin?.spacing.toolbarPaddingH ?? 16),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(color: cs.outline.withValues(alpha: 0.15)),
@@ -106,15 +112,15 @@ class _StatusBarState extends State<StatusBar> {
             height: 6,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: ffiAvailable ? AppColors.success : AppColors.warning,
+              color: ffiAvailable ? skinSuccess : skinWarning,
             ),
           ),
           const SizedBox(width: 6),
           Text(
             ffiAvailable ? 'Rust FFI' : 'No FFI',
             style: AppTypography.mono(
-              fontSize: 10,
-              color: ffiAvailable ? AppColors.success : AppColors.warning,
+              fontSize: statusFontSize,
+              color: ffiAvailable ? skinSuccess : skinWarning,
             ),
           ),
 
@@ -127,7 +133,7 @@ class _StatusBarState extends State<StatusBar> {
               height: 10,
               child: CircularProgressIndicator(
                 strokeWidth: 1.5,
-                color: AppColors.accent.withValues(alpha: 0.6),
+                color: skinAccent.withValues(alpha: 0.6),
               ),
             ),
             const SizedBox(width: 6),
@@ -138,7 +144,7 @@ class _StatusBarState extends State<StatusBar> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: BackgroundMonitor.isRunning
-                    ? AppColors.success
+                    ? skinSuccess
                     : cs.onSurfaceVariant.withValues(alpha: 0.3),
               ),
             ),
@@ -147,8 +153,8 @@ class _StatusBarState extends State<StatusBar> {
           Text(
             _monitorText,
             style: AppTypography.mono(
-              fontSize: 10,
-              color: isChecking ? AppColors.accent : cs.onSurfaceVariant,
+              fontSize: statusFontSize,
+              color: isChecking ? skinAccent : cs.onSurfaceVariant,
             ),
           ),
 
@@ -161,15 +167,15 @@ class _StatusBarState extends State<StatusBar> {
               height: 6,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _releaseStatusColor,
+                color: _releaseStatusColor(skin),
               ),
             ),
             const SizedBox(width: 6),
             Text(
               _releaseStatusText,
               style: AppTypography.mono(
-                fontSize: 10,
-                color: _releaseStatusColor,
+                fontSize: statusFontSize,
+                color: _releaseStatusColor(skin),
               ),
             ),
             const SizedBox(width: 16),
@@ -179,7 +185,7 @@ class _StatusBarState extends State<StatusBar> {
           Text(
             _lastScanText,
             style: AppTypography.mono(
-              fontSize: 10,
+              fontSize: statusFontSize,
               color: cs.onSurfaceVariant,
             ),
           ),

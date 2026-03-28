@@ -91,13 +91,15 @@ class FilterBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
+    final toolbarPaddingH = skin?.spacing.toolbarPaddingH ?? 16.0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         // Row 1: Activity filters + Sort + View toggle
         Padding(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 4),
+          padding: EdgeInsets.only(left: toolbarPaddingH, right: toolbarPaddingH, top: 8, bottom: 4),
           child: Row(
             children: [
               // Activity filters
@@ -166,7 +168,7 @@ class FilterBar extends StatelessWidget {
 
         // Row 2: Health + Project type + Tags
         Padding(
-          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4),
+          padding: EdgeInsets.only(left: toolbarPaddingH, right: toolbarPaddingH, bottom: 4),
           child: SizedBox(
             height: 32,
             child: ListView(
@@ -285,6 +287,12 @@ class _FilterPillState extends State<_FilterPill> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
+    final skinAccent = skin?.colors.accent ?? AppColors.accent;
+    final pillPaddingH = skin?.toolbarStyle.filterPillPaddingH ?? 14.0;
+    final pillPaddingV = skin?.toolbarStyle.filterPillPaddingV ?? 7.0;
+    final pillRadius = skin?.toolbarStyle.filterPillRadius ?? AppRadius.full;
+    final hoverDuration = skin?.animations.hoverDuration ?? const Duration(milliseconds: 150);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -292,18 +300,18 @@ class _FilterPillState extends State<_FilterPill> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          duration: hoverDuration,
+          padding: EdgeInsets.symmetric(horizontal: pillPaddingH, vertical: pillPaddingV),
           decoration: BoxDecoration(
             color: widget.isSelected
-                ? AppColors.accent.withValues(alpha: 0.15)
+                ? skinAccent.withValues(alpha: 0.15)
                 : _isHovered
                     ? cs.onSurface.withValues(alpha: 0.05)
                     : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.full),
+            borderRadius: BorderRadius.circular(pillRadius),
             border: Border.all(
               color: widget.isSelected
-                  ? AppColors.accent.withValues(alpha: 0.5)
+                  ? skinAccent.withValues(alpha: 0.5)
                   : cs.outline.withValues(alpha: 0.3),
             ),
           ),
@@ -311,13 +319,13 @@ class _FilterPillState extends State<_FilterPill> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (widget.isSelected) ...[
-                const Icon(Icons.check, size: 14, color: AppColors.accent),
+                Icon(Icons.check, size: 14, color: skinAccent),
                 const SizedBox(width: 4),
               ],
               Text(
                 widget.label,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: widget.isSelected ? AppColors.accent : cs.onSurfaceVariant,
+                  color: widget.isSelected ? skinAccent : cs.onSurfaceVariant,
                   fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
@@ -343,19 +351,23 @@ class _ViewToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
+    final skinAccent = skin?.colors.accent ?? AppColors.accent;
+    final btnRadius = skin?.toolbarStyle.buttonRadius ?? AppRadius.sm;
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(btnRadius),
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: isActive ? AppColors.accent.withValues(alpha: 0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
+          color: isActive ? skinAccent.withValues(alpha: 0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(btnRadius),
         ),
         child: Icon(
           icon,
-          size: 18,
-          color: isActive ? AppColors.accent : cs.onSurfaceVariant,
+          size: skin?.toolbarStyle.buttonIconSize ?? 18,
+          color: isActive ? skinAccent : cs.onSurfaceVariant,
         ),
       ),
     );

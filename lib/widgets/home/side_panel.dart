@@ -29,10 +29,13 @@ class HomeSidePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final skin = AppSkin.maybeOf(context);
+    final panelWidth = skin?.spacing.sidePanelWidth ?? 240.0;
+    final panelPadding = skin?.spacing.md ?? 16.0;
 
     return Container(
-      width: 240,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      width: panelWidth,
+      padding: EdgeInsets.fromLTRB(panelPadding, panelPadding, panelPadding, 32),
       child: SingleChildScrollView(
         child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
