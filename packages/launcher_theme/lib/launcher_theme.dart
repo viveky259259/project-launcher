@@ -8,3 +8,7 @@ export 'src/app_colors.dart';
 export 'src/app_typography.dart';
 export 'src/app_skin.dart';
 export 'src/skins/default_skin.dart';
+export 'src/skins/minimal_skin.dart';
+export 'src/skins/corporate_skin.dart';
+export 'src/skins/gaming_skin.dart';
+export 'src/skins/terminal_skin.dart';

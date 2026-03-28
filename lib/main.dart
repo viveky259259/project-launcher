@@ -59,6 +59,10 @@ class ProjectLauncherAppState extends State<ProjectLauncherApp> {
   /// All available skins (order matters for the switcher UI).
   static const List<AppSkin> allSkins = [
     DefaultSkin(),
+    MinimalSkin(),
+    CorporateSkin(),
+    GamingSkin(),
+    TerminalSkin(),
   ];
 
   @override
