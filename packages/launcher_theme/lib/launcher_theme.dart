@@ -12,4 +12,3 @@ export 'src/skins/minimal_skin.dart';
 export 'src/skins/corporate_skin.dart';
 export 'src/skins/gaming_skin.dart';
 export 'src/skins/terminal_skin.dart';
-export 'src/skins/projekta_skin.dart';

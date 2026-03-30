@@ -308,7 +308,6 @@ enum SkinId {
   corporate,
   gaming,
   terminal,
-  projekta,
 }
 
 extension SkinIdExtension on SkinId {
@@ -319,7 +318,6 @@ extension SkinIdExtension on SkinId {
       case SkinId.corporate: return 'corporate';
       case SkinId.gaming: return 'gaming';
       case SkinId.terminal: return 'terminal';
-      case SkinId.projekta: return 'projekta';
     }
   }
 }
