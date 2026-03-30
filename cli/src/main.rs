@@ -312,14 +312,13 @@ fn collect_git_info(projects: &[Project]) -> Vec<ProjectInfo> {
 // Commands
 // ---------------------------------------------------------------------------
 
-fn cmd_list(
-    projects: &[Project],
+fn filter_projects<'a>(
+    projects: &'a [Project],
     scores: &HashMap<String, serde_json::Value>,
     tag: &Option<String>,
     filter: &Option<String>,
-    json_output: bool,
-) {
-    let filtered: Vec<&Project> = projects
+) -> Vec<&'a Project> {
+    projects
         .iter()
         .filter(|p| {
             if let Some(t) = tag {
@@ -338,7 +337,80 @@ fn cmd_list(
             }
             true
         })
-        .collect();
+        .collect()
+}
+
+fn format_health_score(score: Option<i32>) -> String {
+    match score {
+        Some(s) => {
+            let text = format!("{}/100", s);
+            if s >= 80 {
+                text.green().to_string()
+            } else if s >= 50 {
+                text.yellow().to_string()
+            } else {
+                text.red().to_string()
+            }
+        }
+        None => "--".dimmed().to_string(),
+    }
+}
+
+fn format_git_indicators(info: &ProjectInfo) -> String {
+    let mut indicators = String::new();
+    if info.has_git {
+        if info.uncommitted {
+            indicators.push_str(&" M".yellow().to_string());
+        }
+        if info.unpushed > 0 {
+            indicators.push_str(&format!(
+                " {}{}",
+                "↑".yellow(),
+                info.unpushed.to_string().yellow()
+            ));
+        }
+    }
+    indicators
+}
+
+fn print_project_row(project: &Project, health_str: &str, info: &ProjectInfo) {
+    let branch = if info.has_git {
+        if info.branch.is_empty() { "-".to_string() } else { info.branch.clone() }
+    } else {
+        "no git".dimmed().to_string()
+    };
+
+    let last = if info.has_git && !info.last_commit.is_empty() {
+        info.last_commit.clone()
+    } else {
+        "-".to_string()
+    };
+
+    let pin = if project.is_pinned { "*" } else { " " };
+    let name = if project.is_pinned {
+        project.name.bold().to_string()
+    } else {
+        project.name.clone()
+    };
+
+    let indicators = format_git_indicators(info);
+
+    println!(
+        " {}{:<30} {:<18} {:<15} {}{}",
+        pin, name, health_str, branch,
+        last.dimmed(),
+        indicators
+    );
+}
+
+fn cmd_list(
+    projects: &[Project],
+    scores: &HashMap<String, serde_json::Value>,
+    tag: &Option<String>,
+    filter: &Option<String>,
+    json_output: bool,
+) {
+    let filtered = filter_projects(projects, scores, tag, filter);
 
     if json_output {
         let output: Vec<serde_json::Value> = filtered
@@ -366,11 +438,9 @@ fn cmd_list(
         return;
     }
 
-    // Collect git info in parallel
     let owned: Vec<Project> = filtered.iter().map(|p| (*p).clone()).collect();
     let git_info = collect_git_info(&owned);
 
-    // Header
     println!(
         "  {:<30} {:<8} {:<15} {}",
         "PROJECT".dimmed(),
@@ -381,97 +451,75 @@ fn cmd_list(
     println!("  {}", "-".repeat(75).dimmed());
 
     for (i, project) in filtered.iter().enumerate() {
-        let health = get_health_score(scores, &project.path);
-        let health_str = match health {
-            Some(s) => {
-                let text = format!("{}/100", s);
-                if s >= 80 {
-                    text.green().to_string()
-                } else if s >= 50 {
-                    text.yellow().to_string()
-                } else {
-                    text.red().to_string()
-                }
-            }
-            None => "--".dimmed().to_string(),
-        };
-
-        let info = &git_info[i];
-        let branch = if info.has_git {
-            if info.branch.is_empty() {
-                "-".to_string()
-            } else {
-                info.branch.clone()
-            }
-        } else {
-            "no git".dimmed().to_string()
-        };
-
-        let last = if info.has_git && !info.last_commit.is_empty() {
-            info.last_commit.clone()
-        } else {
-            "-".to_string()
-        };
-
-        let pin = if project.is_pinned { "*" } else { " " };
-        let name = if project.is_pinned {
-            project.name.bold().to_string()
-        } else {
-            project.name.clone()
-        };
-
-        let mut indicators = String::new();
-        if info.has_git {
-            if info.uncommitted {
-                indicators.push_str(&" M".yellow().to_string());
-            }
-            if info.unpushed > 0 {
-                indicators.push_str(&format!(
-                    " {}{}",
-                    "↑".yellow(),
-                    info.unpushed.to_string().yellow()
-                ));
-            }
-        }
-
-        println!(
-            " {}{:<30} {:<18} {:<15} {}{}",
-            pin,
-            name,
-            health_str,
-            branch,
-            last.dimmed(),
-            indicators
-        );
+        let health_str = format_health_score(get_health_score(scores, &project.path));
+        print_project_row(project, &health_str, &git_info[i]);
     }
 
     println!();
     println!("  {} projects", filtered.len().to_string().bold());
 }
 
-fn cmd_health(projects: &[Project], scores: &HashMap<String, serde_json::Value>, json_output: bool) {
-    let mut healthy = 0;
-    let mut attention = 0;
-    let mut critical = 0;
-    let mut unknown = 0;
+struct HealthCounts {
+    healthy: usize,
+    attention: usize,
+    critical: usize,
+    unknown: usize,
+}
 
+fn tally_health(projects: &[Project], scores: &HashMap<String, serde_json::Value>) -> HealthCounts {
+    let mut counts = HealthCounts { healthy: 0, attention: 0, critical: 0, unknown: 0 };
     for project in projects {
         match get_health_score(scores, &project.path) {
-            Some(s) if s >= 80 => healthy += 1,
-            Some(s) if s >= 50 => attention += 1,
-            Some(_) => critical += 1,
-            None => unknown += 1,
+            Some(s) if s >= 80 => counts.healthy += 1,
+            Some(s) if s >= 50 => counts.attention += 1,
+            Some(_) => counts.critical += 1,
+            None => counts.unknown += 1,
         }
     }
+    counts
+}
+
+fn print_health_summary(counts: &HealthCounts, total: usize) {
+    println!();
+    println!("  {} Project Health Summary", "".bold());
+    println!("  {}", "-".repeat(35).dimmed());
+    println!("  {} {} healthy", "●".green(), counts.healthy.to_string().bold());
+    println!("  {} {} needs attention", "●".yellow(), counts.attention.to_string().bold());
+    println!("  {} {} critical", "●".red(), counts.critical.to_string().bold());
+    if counts.unknown > 0 {
+        println!("  {} {} not scored", "○".dimmed(), counts.unknown.to_string().dimmed());
+    }
+    println!("  {}", "-".repeat(35).dimmed());
+    println!("  {} total", total.to_string().bold());
+    println!();
+}
+
+fn find_unpushed_projects(projects: &[Project]) -> Vec<(&String, i32)> {
+    projects
+        .par_iter()
+        .filter_map(|p| {
+            if is_git_repo(&p.path) {
+                let count = git_unpushed_count(&p.path);
+                if count > 0 {
+                    return Some((&p.name, count));
+                }
+            }
+            None
+        })
+        .collect()
+}
+
+fn cmd_health(projects: &[Project], scores: &HashMap<String, serde_json::Value>, json_output: bool) {
+    let counts = tally_health(projects, scores);
 
     if json_output {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "healthy": healthy,
-                "needsAttention": attention,
-                "critical": critical,
-                "unknown": unknown,
+                "healthy": counts.healthy,
+                "needsAttention": counts.attention,
+                "critical": counts.critical,
+                "unknown": counts.unknown,
                 "total": projects.len(),
             }))
             .unwrap()
@@ -479,33 +527,9 @@ fn cmd_health(projects: &[Project], scores: &HashMap<String, serde_json::Value>,
         return;
     }
 
-    println!();
-    println!("  {} Project Health Summary", "".bold());
-    println!("  {}", "-".repeat(35).dimmed());
-    println!(
-        "  {} {} healthy",
-        "●".green(),
-        healthy.to_string().bold()
-    );
-    println!(
-        "  {} {} needs attention",
-        "●".yellow(),
-        attention.to_string().bold()
-    );
-    println!("  {} {} critical", "●".red(), critical.to_string().bold());
-    if unknown > 0 {
-        println!(
-            "  {} {} not scored",
-            "○".dimmed(),
-            unknown.to_string().dimmed()
-        );
-    }
-    println!("  {}", "-".repeat(35).dimmed());
-    println!("  {} total", projects.len().to_string().bold());
-    println!();
+    print_health_summary(&counts, projects.len());
 
-    // Critical projects
-    if critical > 0 {
+    if counts.critical > 0 {
         println!("  {} Critical projects:", "!".red().bold());
         for project in projects {
             if let Some(s) = get_health_score(scores, &project.path) {
@@ -517,20 +541,7 @@ fn cmd_health(projects: &[Project], scores: &HashMap<String, serde_json::Value>,
         println!();
     }
 
-    // Unpushed (parallel)
-    let unpushed_projects: Vec<(&String, i32)> = projects
-        .par_iter()
-        .filter_map(|p| {
-            if is_git_repo(&p.path) {
-                let count = git_unpushed_count(&p.path);
-                if count > 0 {
-                    return Some((&p.name, count));
-                }
-            }
-            None
-        })
-        .collect();
-
+    let unpushed_projects = find_unpushed_projects(projects);
     if !unpushed_projects.is_empty() {
         println!("  {} Unpushed commits:", "↑".yellow().bold());
         for (name, count) in &unpushed_projects {

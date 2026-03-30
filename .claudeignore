@@ -1,0 +1,43 @@
+# Lock files (zero useful context, thousands of lines)
+pubspec.lock
+**/pubspec.lock
+Cargo.lock
+**/Cargo.lock
+package-lock.json
+**/package-lock.json
+
+# Build outputs
+build/
+**/build/
+rust/target/
+cli/target/
+macos/Flutter/ephemeral/
+macos/Pods/
+**/node_modules/
+vscode-extension/out/
+
+# Generated / platform
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/.dart_tool/
+.metadata
+*.dmg
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Images / docs assets (large binaries)
+app images/
+docs/*.png
+
+# OS
+.DS_Store
+.env
+.env.*
+
+# Misc
+.gstack/
+.ocean_clone_manifest

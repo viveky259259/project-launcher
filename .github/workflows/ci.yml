@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analyze-dart:
+    name: Dart Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: dart pub global activate melos
+      - run: melos bootstrap
+      - run: melos run analyze
+
+  test-flutter:
+    name: Flutter Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: dart pub global activate melos
+      - run: melos bootstrap
+      - run: melos run test
+
+  build-rust:
+    name: Rust Build & Test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test core library
+        run: cd rust && cargo test
+      - name: Test CLI
+        run: cd cli && cargo test
+      - name: Build release
+        run: cd rust && cargo build --release
+
+  build-app:
+    name: Build macOS App
+    runs-on: macos-latest
+    needs: [analyze-dart, test-flutter, build-rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - run: make build
