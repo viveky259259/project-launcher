@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/premium_service.dart';
 import 'package:launcher_theme/launcher_theme.dart';
@@ -166,7 +167,47 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         _buildBillingSection(cs),
         const SizedBox(height: 24),
         _buildQuickActions(cs),
+        if (kDebugMode) ...[
+          const SizedBox(height: 24),
+          _buildDebugSection(cs),
+        ],
       ],
+    );
+  }
+
+  Widget _buildDebugSection(ColorScheme cs) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('DEBUG', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.red, letterSpacing: 1.2)),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.delete_forever, color: Colors.red, size: 18),
+              label: const Text('Reset Subscription', style: TextStyle(color: Colors.red)),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+              onPressed: () async {
+                await PremiumService.resetSubscription();
+                widget.onStatusChanged?.call();
+                await _loadData();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Subscription reset to Free'), behavior: SnackBarBehavior.floating),
+                  );
+                }
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 

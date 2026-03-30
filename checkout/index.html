@@ -162,12 +162,12 @@
     // ─── Configuration ───
     // IMPORTANT: Replace with your Paddle client-side token (NOT the API key)
     // Find it in Paddle Dashboard → Developer Tools → Authentication
-    const PADDLE_CLIENT_TOKEN = 'test_REPLACE_WITH_CLIENT_TOKEN';
-    const IS_SANDBOX = true;
+    const PADDLE_CLIENT_TOKEN = 'live_600f06bb7c17a5c527a880642ff';
+    const IS_SANDBOX = false;
 
     // ─── Read URL params ───
     const params = new URLSearchParams(window.location.search);
-    const priceId = params.get('price_id') || 'pri_01kk4w25sv27phfgq2tzwm802d';
+    const priceId = params.get('price_id') || 'pri_01kmwfb79c4e54et2mm0kgz4h2';
     const customData = params.get('custom_data');
     const customerId = params.get('customer_id');
 
@@ -178,7 +178,7 @@
 
     // Plan display names
     const planNames = {
-      'pri_01kk4w25sv27phfgq2tzwm802d': { name: 'Pro Monthly', price: '$100.00/month — 6 month free trial' },
+      'pri_01kmwfb79c4e54et2mm0kgz4h2': { name: 'Pro Monthly', price: 'Monthly subscription' },
       // Add your yearly and lifetime price IDs here:
       // 'pri_YEARLY_ID': { name: 'Pro Yearly', price: '$XX.XX/year' },
       // 'pri_LIFETIME_ID': { name: 'Pro Lifetime', price: '$XX.XX one-time' },

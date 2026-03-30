@@ -56,13 +56,13 @@ analyze:
 
 # Release targets
 release-patch:
-	./scripts/release.sh patch
+	./release.sh patch
 
 release-minor:
-	./scripts/release.sh minor
+	./release.sh minor
 
 release-major:
-	./scripts/release.sh major
+	./release.sh major
 
 release-dry:
-	./scripts/release.sh patch --dry-run
+	./release.sh patch --dry-run

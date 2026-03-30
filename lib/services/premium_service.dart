@@ -17,8 +17,9 @@ class PaddleConfig {
   static String get apiBaseUrl =>
       isSandbox ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
 
-  // ── Price ID ──
-  static const String monthlyPriceId = 'pri_01kk4w25sv27phfgq2tzwm802d';
+  // ── Product & Price IDs ──
+  static const String productId = 'pro_01kmwf6yarjnzgv7j9d525p1xe';
+  static const String monthlyPriceId = 'pri_01kmwfb79c4e54et2mm0kgz4h2';
 
   // ── URLs ──
   // Hosted checkout page with Paddle.js that reads price_id from URL params
@@ -444,6 +445,23 @@ class PremiumService {
   /// Listen for pro status changes.
   static void addStatusListener(void Function(bool isPro) listener) {
     proStatusStream.listen(listener);
+  }
+
+  // ─── Debug ───
+
+  /// Reset all subscription and promo state. Debug builds only.
+  static Future<void> resetSubscription() async {
+    assert(() { return true; }(), 'resetSubscription must only be called in debug mode');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('paddle_customer_id');
+    await prefs.remove('promo_expiry');
+    await prefs.remove('promo_code');
+    await prefs.remove('used_promo_codes');
+    await prefs.remove('subscription_status');
+    await prefs.remove('subscription_cached_at');
+    _paddleCustomerId = null;
+    _cachedStatus = null;
+    _statusController.add(false);
   }
 }
 

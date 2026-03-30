@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:launcher_models/launcher_models.dart';
 import 'package:launcher_theme/launcher_theme.dart';
+import '../../services/project_type_detector.dart';
 
 class NavItem extends StatefulWidget {
   final String label;

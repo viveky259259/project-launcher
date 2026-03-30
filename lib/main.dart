@@ -63,6 +63,7 @@ class ProjectLauncherAppState extends State<ProjectLauncherApp> {
     CorporateSkin(),
     GamingSkin(),
     TerminalSkin(),
+    ProjektaSkin(),
   ];
 
   @override
