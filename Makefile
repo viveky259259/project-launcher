@@ -1,4 +1,4 @@
-.PHONY: all rust flutter build install clean bootstrap release-patch release-minor release-major release-dry
+.PHONY: all rust flutter build install clean bootstrap release-patch release-minor release-major release-dry build-admin build-all serve build-backend build-docker run-docker stop-docker push-docker
 
 # Default target
 all: build
@@ -66,3 +66,35 @@ release-major:
 
 release-dry:
 	./scripts/release.sh patch --dry-run
+
+## Build the admin SPA (Flutter web)
+build-admin:
+	cd web_app && flutter pub get && flutter build web --release
+
+## Build everything including admin SPA and backend
+build-all: rust build-admin build-backend build
+
+## Run the catalog server (dev mode)
+serve:
+	PLAUNCHER_JWT_SECRET=$${PLAUNCHER_JWT_SECRET:-dev-secret} \
+	GITHUB_CLIENT_ID=$${GITHUB_CLIENT_ID:-} \
+	GITHUB_CLIENT_SECRET=$${GITHUB_CLIENT_SECRET:-} \
+	cargo run --manifest-path cli/Cargo.toml -- serve --catalog catalog.example.yaml
+
+## Backend
+build-backend:
+	cd backend && cargo build --release
+
+## Docker
+build-docker:
+	docker compose build
+
+run-docker:
+	docker compose up -d
+
+stop-docker:
+	docker compose down
+
+push-docker:
+	docker tag project-launcher-plauncher plauncher/org-server:latest
+	docker push plauncher/org-server:latest

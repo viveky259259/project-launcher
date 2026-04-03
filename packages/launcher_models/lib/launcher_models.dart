@@ -9,3 +9,4 @@ export 'src/ai_insight.dart';
 export 'src/referral.dart';
 export 'src/release_info.dart';
 export 'src/ship_checklist.dart';
+export 'src/catalog.dart';
