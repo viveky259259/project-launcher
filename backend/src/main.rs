@@ -4,10 +4,12 @@ mod middleware;
 mod models;
 mod routes;
 mod services;
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 
-use axum::{extract::State, routing::{get, post}, Json, Router};
+use axum::{extract::State, http::HeaderValue, routing::{get, post}, Json, Router};
 use mongodb::IndexModel;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
@@ -258,6 +260,80 @@ fn hostname() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
+/// Build the CORS layer.
+///
+/// If `PLAUNCHER_CORS_ORIGINS` is set (comma-separated list of origins,
+/// e.g. `https://admin.netlify.app,https://orgadmin.netlify.app`), those
+/// exact origins are whitelisted.  Otherwise the layer falls back to
+/// `CorsLayer::permissive()` which is safe for self-hosted / local dev.
+fn build_cors_layer() -> CorsLayer {
+    let raw = std::env::var("PLAUNCHER_CORS_ORIGINS").unwrap_or_default();
+    let raw = raw.trim();
+
+    if raw.is_empty() {
+        tracing::info!("PLAUNCHER_CORS_ORIGINS not set — using permissive CORS (dev mode)");
+        return CorsLayer::permissive();
+    }
+
+    let origins: Vec<HeaderValue> = raw
+        .split(',')
+        .filter_map(|s| {
+            let s = s.trim();
+            match s.parse::<HeaderValue>() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!("Skipping invalid CORS origin {s:?}: {e}");
+                    None
+                }
+            }
+        })
+        .collect();
+
+    if origins.is_empty() {
+        tracing::warn!("PLAUNCHER_CORS_ORIGINS contained no valid origins — falling back to permissive");
+        return CorsLayer::permissive();
+    }
+
+    tracing::info!("CORS restricted to {} origin(s)", origins.len());
+    CorsLayer::new().allow_origin(tower_http::cors::AllowOrigin::list(origins))
+}
+
+/// Construct the application router from a shared state handle.
+/// Extracted so both `main()` and integration tests can call it.
+pub fn build_app(state: SharedState) -> Router {
+    // Rate-limit auth endpoints: 5 requests/second sustained, burst of 10 per IP.
+    let auth_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(5)
+            .burst_size(10)
+            .finish()
+            .unwrap(),
+    );
+
+    Router::new()
+        // Health check
+        .route("/health", get(health_check))
+        // Auth routes (GitHub OAuth) — rate-limited per IP
+        .nest(
+            "/auth",
+            routes::auth::auth_routes().layer(GovernorLayer {
+                config: Arc::clone(&auth_governor),
+            }),
+        )
+        // License validation (called by self-hosted instances)
+        .route("/api/license/validate", post(routes::license::validate_license))
+        // Super admin routes
+        .nest("/super-admin", routes::super_admin::super_admin_routes())
+        // Org admin routes (full paths — nest() doesn't support path params)
+        .merge(routes::org_admin::org_admin_routes())
+        // Catalog routes
+        .merge(routes::catalog::catalog_routes())
+        // Onboarding routes
+        .merge(routes::onboarding::onboarding_routes())
+        .layer(build_cors_layer())
+        .with_state(state)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
@@ -314,39 +390,7 @@ async fn main() -> anyhow::Result<()> {
         revoked_jwts: dashmap::DashMap::new(),
     });
 
-    // Build router
-    // Rate-limit auth endpoints: 5 requests/second sustained, burst of 10 per IP.
-    // Protects the OAuth callback and token exchange from abuse.
-    let auth_governor = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(5)
-            .burst_size(10)
-            .finish()
-            .unwrap(),
-    );
-
-    let app = Router::new()
-        // Health check
-        .route("/health", get(health_check))
-        // Auth routes (GitHub OAuth) — rate-limited per IP
-        .nest(
-            "/auth",
-            routes::auth::auth_routes().layer(GovernorLayer {
-                config: Arc::clone(&auth_governor),
-            }),
-        )
-        // License validation (called by self-hosted instances)
-        .route("/api/license/validate", post(routes::license::validate_license))
-        // Super admin routes
-        .nest("/super-admin", routes::super_admin::super_admin_routes())
-        // Org admin routes (full paths — nest() doesn't support path params)
-        .merge(routes::org_admin::org_admin_routes())
-        // Catalog routes
-        .merge(routes::catalog::catalog_routes())
-        // Onboarding routes
-        .merge(routes::onboarding::onboarding_routes())
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    let app = build_app(state);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
