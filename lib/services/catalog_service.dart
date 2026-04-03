@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:developer';
+
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -16,40 +16,56 @@ const _kLastDiffKey = 'catalog_last_diff';
 
 /// Catalog service — connects to a remote catalog server, syncs repos,
 /// and manages onboarding state.
+///
+/// Access via the singleton [CatalogService.instance]. The instance-based
+/// design keeps all mutable state encapsulated and makes the service
+/// replaceable in tests.
 class CatalogService {
+  CatalogService._();
+
+  /// The application-wide singleton. Replace in tests via
+  /// [CatalogService.resetForTesting].
+  static CatalogService instance = CatalogService._();
+
+  /// Swap the singleton — intended for unit tests only.
+  @visibleForTesting
+  static void resetForTesting(CatalogService testInstance) {
+    instance = testInstance;
+  }
+
   // ── State ──
 
-  static CatalogWorkspace? _workspace;
-  static Catalog? _catalog;
-  static CatalogDiff? _lastDiff;
+  CatalogWorkspace? _workspace;
+  Catalog? _catalog;
+  CatalogDiff? _lastDiff;
 
   /// Repos whose env templates have "ask" variables that need user input.
   /// Keyed by repo name.
-  static final Map<String, bool> _pendingEnvSetup = {};
+  final Map<String, bool> _pendingEnvSetup = {};
 
   /// Current onboarding checklist for the active workspace.
-  static OnboardingChecklist? _onboardingChecklist;
-  static OnboardingChecklist? get onboardingChecklist => _onboardingChecklist;
+  OnboardingChecklist? _onboardingChecklist;
+  OnboardingChecklist? get onboardingChecklist => _onboardingChecklist;
 
-  static CatalogWorkspace? get workspace => _workspace;
-  static Catalog? get catalog => _catalog;
-  static CatalogDiff? get lastDiff => _lastDiff;
-  static bool get isConnected =>
+  CatalogWorkspace? get workspace => _workspace;
+  Catalog? get catalog => _catalog;
+  CatalogDiff? get lastDiff => _lastDiff;
+  bool get isConnected =>
       _workspace != null && _workspace!.authToken != null;
 
   /// Returns true when the given repo has an env template with "ask" vars
   /// that the user still needs to fill in.
-  static bool needsEnvSetup(String repoName) =>
+  bool needsEnvSetup(String repoName) =>
       _pendingEnvSetup[repoName] ?? false;
 
   // ── Listeners ──
 
-  static final _listeners = <VoidCallback>[];
+  final _listeners = <VoidCallback>[];
 
-  static void addListener(VoidCallback cb) => _listeners.add(cb);
-  static void removeListener(VoidCallback cb) => _listeners.remove(cb);
+  void addListener(VoidCallback cb) => _listeners.add(cb);
+  void removeListener(VoidCallback cb) => _listeners.remove(cb);
 
-  static void _notify() {
+  void _notify() {
     for (final cb in List<VoidCallback>.from(_listeners)) {
       cb();
     }
@@ -57,14 +73,14 @@ class CatalogService {
 
   // ── Helpers ──
 
-  static Map<String, String> get _authHeaders => {
+  Map<String, String> get _authHeaders => {
         'Authorization': 'Bearer ${_workspace!.authToken}',
         'Content-Type': 'application/json',
       };
 
-  static String get _serverUrl => _workspace!.serverUrl;
+  String get _serverUrl => _workspace!.serverUrl;
 
-  static Never _throwHttp(http.Response response, String context) {
+  Never _throwHttp(http.Response response, String context) {
     if (response.statusCode == 401) {
       throw Exception('Authentication expired, please reconnect');
     }
@@ -75,7 +91,7 @@ class CatalogService {
   // ── Initialization ──
 
   /// Load saved workspace from SharedPreferences on app start.
-  static Future<void> initialize() async {
+  Future<void> initialize() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
@@ -99,9 +115,9 @@ class CatalogService {
 
       await loadOnboardingState();
 
-      log('CatalogService initialized (connected: $isConnected)');
+      debugPrint('CatalogService initialized (connected: $isConnected)');
     } catch (e) {
-      log('CatalogService.initialize error: $e');
+      debugPrint('CatalogService.initialize error: $e');
     }
   }
 
@@ -109,7 +125,7 @@ class CatalogService {
 
   /// Connect to a catalog server and authenticate via GitHub OAuth device flow.
   /// Returns the resulting [CatalogWorkspace].
-  static Future<CatalogWorkspace> joinWorkspace(String serverUrl) async {
+  Future<CatalogWorkspace> joinWorkspace(String serverUrl) async {
     final normalizedUrl = serverUrl.endsWith('/')
         ? serverUrl.substring(0, serverUrl.length - 1)
         : serverUrl;
@@ -142,7 +158,7 @@ class CatalogService {
     final deviceId = const Uuid().v4();
     await PlatformHelper.openUrl(
         '$normalizedUrl/auth/github?device_id=$deviceId');
-    log('CatalogService: opened browser for GitHub OAuth (device: $deviceId)');
+    debugPrint('CatalogService: opened browser for GitHub OAuth (device: $deviceId)');
 
     final token = await _pollForToken(normalizedUrl, deviceId);
 
@@ -160,14 +176,14 @@ class CatalogService {
     await prefs.setString(_kWorkspaceKey, jsonEncode(workspace.toJson()));
 
     _notify();
-    log('CatalogService: joined workspace ${workspace.name}');
+    debugPrint('CatalogService: joined workspace ${workspace.name}');
     return workspace;
   }
 
   /// Connect to a catalog server using a pre-issued API token (no OAuth).
   /// The token is set directly, then verified by fetching the catalog.
   /// Returns the resulting [CatalogWorkspace].
-  static Future<CatalogWorkspace> joinWithToken(
+  Future<CatalogWorkspace> joinWithToken(
     String serverUrl,
     String token,
   ) async {
@@ -224,13 +240,13 @@ class CatalogService {
     }
 
     _notify();
-    log('CatalogService: joined workspace ${workspace.name} with token');
+    debugPrint('CatalogService: joined workspace ${workspace.name} with token');
     return workspace;
   }
 
   /// Poll `{serverUrl}/auth/status?device_id=<id>` until a token arrives
   /// or the timeout is reached.
-  static Future<String> _pollForToken(
+  Future<String> _pollForToken(
     String serverUrl,
     String deviceId, {
     Duration timeout = const Duration(minutes: 5),
@@ -249,7 +265,7 @@ class CatalogService {
           if (token != null && token.isNotEmpty) return token;
         }
       } catch (e) {
-        log('CatalogService: token poll error: $e');
+        debugPrint('CatalogService: token poll error: $e');
       }
     }
     throw Exception(
@@ -259,7 +275,7 @@ class CatalogService {
   // ── Catalog ──
 
   /// Fetch the catalog from the server and cache it locally.
-  static Future<void> fetchCatalog() async {
+  Future<void> fetchCatalog() async {
     if (!isConnected) {
       throw Exception('Not connected to a catalog workspace');
     }
@@ -284,13 +300,13 @@ class CatalogService {
     await prefs.setString(_kCatalogKey, jsonEncode(_catalog!.toJson()));
 
     _notify();
-    log('CatalogService: fetched catalog (${_catalog!.repos.length} repos)');
+    debugPrint('CatalogService: fetched catalog (${_catalog!.repos.length} repos)');
   }
 
   // ── Diff ──
 
   /// Compare locally known repos against the catalog and return the diff.
-  static Future<CatalogDiff> computeDiff() async {
+  Future<CatalogDiff> computeDiff() async {
     if (!isConnected) {
       throw Exception('Not connected to a catalog workspace');
     }
@@ -311,7 +327,7 @@ class CatalogService {
           }
         }
       } catch (e) {
-        log('CatalogService.computeDiff: error reading projects.json: $e');
+        debugPrint('CatalogService.computeDiff: error reading projects.json: $e');
       }
     }
 
@@ -339,7 +355,7 @@ class CatalogService {
     await prefs.setString(_kLastDiffKey, jsonEncode(_lastDiff!.toJson()));
 
     _notify();
-    log('CatalogService: computed diff '
+    debugPrint('CatalogService: computed diff '
         '(${_lastDiff!.missingRepos.length} missing)');
     return _lastDiff!;
   }
@@ -353,10 +369,10 @@ class CatalogService {
   /// - If any var is type `"ask"`: marks the repo as pending env setup so the
   ///   UI can show a "Setup env" button.
   /// - Otherwise: auto-applies the template immediately (no user input needed).
-  static Future<void> syncRepo(CatalogRepo repo, String localBasePath) async {
+  Future<void> syncRepo(CatalogRepo repo, String localBasePath) async {
     final targetPath = '$localBasePath${Platform.pathSeparator}${repo.name}';
 
-    log('CatalogService: cloning ${repo.url} → $targetPath');
+    debugPrint('CatalogService: cloning ${repo.url} → $targetPath');
 
     final result = await Process.run(
       'git',
@@ -367,7 +383,7 @@ class CatalogService {
       throw Exception('Failed to clone ${repo.name}: ${result.stderr}');
     }
 
-    log('CatalogService: cloned ${repo.name} successfully');
+    debugPrint('CatalogService: cloned ${repo.name} successfully');
 
     // Handle env template after clone
     if (repo.envTemplateName != null && _catalog != null) {
@@ -380,18 +396,18 @@ class CatalogService {
         if (hasAskVars) {
           // Needs user input — mark pending; UI will show "Setup env" button
           _pendingEnvSetup[repo.name] = true;
-          log('CatalogService: ${repo.name} needs env setup (has "ask" vars)');
+          debugPrint('CatalogService: ${repo.name} needs env setup (has "ask" vars)');
         } else {
           // All vars are default/vault — apply automatically
           try {
             await applyEnvTemplate(targetPath, template, {});
-            log('CatalogService: auto-applied env template for ${repo.name}');
+            debugPrint('CatalogService: auto-applied env template for ${repo.name}');
           } catch (e) {
-            log('CatalogService: failed to auto-apply env template for ${repo.name}: $e');
+            debugPrint('CatalogService: failed to auto-apply env template for ${repo.name}: $e');
           }
         }
       } else {
-        log('CatalogService: env template "${repo.envTemplateName}" not found in catalog');
+        debugPrint('CatalogService: env template "${repo.envTemplateName}" not found in catalog');
       }
     }
 
@@ -412,7 +428,7 @@ class CatalogService {
   /// - `"default"`: writes `NAME=value`
   /// - `"ask"`: writes `NAME=<userValue>` (throws [ArgumentError] if missing)
   /// - `"vault"`: writes a comment `# VAULT: pull from <vaultPath>`
-  static Future<void> applyEnvTemplate(
+  Future<void> applyEnvTemplate(
     String repoPath,
     EnvTemplate template,
     Map<String, String> userValues,
@@ -447,13 +463,13 @@ class CatalogService {
       // Do not overwrite — write to .env.new and warn
       final newFile = File('$repoPath${Platform.pathSeparator}.env.new');
       await newFile.writeAsString(content);
-      log(
+      debugPrint(
         'CatalogService.applyEnvTemplate: .env already exists in $repoPath — '
         'written to .env.new instead',
       );
     } else {
       await envFile.writeAsString(content);
-      log(
+      debugPrint(
         'CatalogService.applyEnvTemplate: wrote .env for template '
         '"${template.name}" in $repoPath',
       );
@@ -466,7 +482,7 @@ class CatalogService {
   }
 
   /// Clone all repos that are in the diff's missing list.
-  static Future<void> syncAllMissing(String localBasePath) async {
+  Future<void> syncAllMissing(String localBasePath) async {
     if (_lastDiff == null) {
       throw Exception('No diff available — call computeDiff() first');
     }
@@ -475,16 +491,16 @@ class CatalogService {
       await syncRepo(repo, localBasePath);
     }
 
-    log('CatalogService: syncAllMissing complete');
+    debugPrint('CatalogService: syncAllMissing complete');
   }
 
   // ── Onboarding state machine ──
 
-  static String _onboardingKey() =>
+  String _onboardingKey() =>
       'onboarding_${_workspace?.id ?? 'default'}';
 
   /// Persist the current checklist to SharedPreferences.
-  static Future<void> _persistOnboardingState() async {
+  Future<void> _persistOnboardingState() async {
     if (_onboardingChecklist == null) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
@@ -494,7 +510,7 @@ class CatalogService {
   }
 
   /// Load onboarding state from SharedPreferences. Called by [initialize].
-  static Future<void> loadOnboardingState() async {
+  Future<void> loadOnboardingState() async {
     if (_workspace == null) return;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -503,17 +519,17 @@ class CatalogService {
         _onboardingChecklist = OnboardingChecklist.fromJson(
           jsonDecode(raw) as Map<String, dynamic>,
         );
-        log('CatalogService: loaded onboarding state '
+        debugPrint('CatalogService: loaded onboarding state '
             '(${_onboardingChecklist!.steps.length} steps, '
             'progress: ${(_onboardingChecklist!.progress * 100).toStringAsFixed(0)}%)');
       }
     } catch (e) {
-      log('CatalogService.loadOnboardingState error: $e');
+      debugPrint('CatalogService.loadOnboardingState error: $e');
     }
   }
 
   /// Build an [OnboardingStep] with an updated [status] (and optional [error]).
-  static OnboardingStep _updateStep(
+  OnboardingStep _updateStep(
     OnboardingStep step,
     OnboardingStatus status, {
     String? error,
@@ -521,7 +537,7 @@ class CatalogService {
       step.copyWith(status: status, error: error, clearError: error == null);
 
   /// Replace a step by [id] in the checklist and persist + notify.
-  static Future<void> _applyStepUpdate(
+  Future<void> _applyStepUpdate(
     String stepId,
     OnboardingStatus status, {
     String? error,
@@ -543,7 +559,7 @@ class CatalogService {
   /// 2. `env_<repoName>`   — one per required repo that has an env template
   /// 3. `build_verify`     — aggregate build step
   /// 4. `test_verify`      — aggregate test step
-  static Future<void> startOnboarding() async {
+  Future<void> startOnboarding() async {
     if (_workspace == null) {
       throw Exception('Not connected to a catalog workspace');
     }
@@ -594,7 +610,7 @@ class CatalogService {
 
     await _persistOnboardingState();
     _notify();
-    log('CatalogService: started onboarding with ${steps.length} steps');
+    debugPrint('CatalogService: started onboarding with ${steps.length} steps');
   }
 
   /// Drive the onboarding state machine from the beginning.
@@ -603,7 +619,7 @@ class CatalogService {
   /// 2. Env steps: auto-apply if no "ask" vars, else pause for UI input
   /// 3. Build verify: run `flutter pub get` or `cargo build`
   /// 4. Test verify: run `flutter test` or `cargo test`
-  static Future<void> runOnboarding(String localBasePath) async {
+  Future<void> runOnboarding(String localBasePath) async {
     if (_onboardingChecklist == null) {
       throw Exception('No onboarding checklist — call startOnboarding() first');
     }
@@ -621,14 +637,14 @@ class CatalogService {
       try {
         await syncRepo(repo, localBasePath);
         await _applyStepUpdate(stepId, OnboardingStatus.done);
-        log('CatalogService: clone step done for ${repo.name}');
+        debugPrint('CatalogService: clone step done for ${repo.name}');
       } catch (e) {
         await _applyStepUpdate(
           stepId,
           OnboardingStatus.failed,
           error: e.toString(),
         );
-        log('CatalogService: clone step failed for ${repo.name}: $e');
+        debugPrint('CatalogService: clone step failed for ${repo.name}: $e');
       }
     }
 
@@ -647,7 +663,7 @@ class CatalogService {
       if (needsEnvSetup(repo.name)) {
         // Needs user input — mark inProgress and stop; UI must prompt
         await _applyStepUpdate(stepId, OnboardingStatus.inProgress);
-        log('CatalogService: env step paused for ${repo.name} — needs user input');
+        debugPrint('CatalogService: env step paused for ${repo.name} — needs user input');
         return;
       }
 
@@ -663,14 +679,14 @@ class CatalogService {
           await applyEnvTemplate(repoPath, template, {});
         }
         await _applyStepUpdate(stepId, OnboardingStatus.done);
-        log('CatalogService: env step done for ${repo.name}');
+        debugPrint('CatalogService: env step done for ${repo.name}');
       } catch (e) {
         await _applyStepUpdate(
           stepId,
           OnboardingStatus.failed,
           error: e.toString(),
         );
-        log('CatalogService: env step failed for ${repo.name}: $e');
+        debugPrint('CatalogService: env step failed for ${repo.name}: $e');
       }
     }
 
@@ -679,14 +695,14 @@ class CatalogService {
     try {
       await _runBuildVerify(localBasePath, requiredRepos);
       await _applyStepUpdate('build_verify', OnboardingStatus.done);
-      log('CatalogService: build_verify done');
+      debugPrint('CatalogService: build_verify done');
     } catch (e) {
       await _applyStepUpdate(
         'build_verify',
         OnboardingStatus.failed,
         error: e.toString(),
       );
-      log('CatalogService: build_verify failed: $e');
+      debugPrint('CatalogService: build_verify failed: $e');
     }
 
     // ── 4. Test verify ──
@@ -694,14 +710,14 @@ class CatalogService {
     try {
       await _runTestVerify(localBasePath, requiredRepos);
       await _applyStepUpdate('test_verify', OnboardingStatus.done);
-      log('CatalogService: test_verify done');
+      debugPrint('CatalogService: test_verify done');
     } catch (e) {
       await _applyStepUpdate(
         'test_verify',
         OnboardingStatus.failed,
         error: e.toString(),
       );
-      log('CatalogService: test_verify failed: $e');
+      debugPrint('CatalogService: test_verify failed: $e');
     }
 
     // Mark completion if every step is done
@@ -710,13 +726,13 @@ class CatalogService {
           _onboardingChecklist!.copyWith(completedAt: DateTime.now());
       await _persistOnboardingState();
       _notify();
-      log('CatalogService: onboarding complete!');
+      debugPrint('CatalogService: onboarding complete!');
     }
   }
 
   /// Detect the dominant project type in [repoPath] and run the appropriate
   /// build command.
-  static Future<void> _runBuildVerify(
+  Future<void> _runBuildVerify(
     String localBasePath,
     List<CatalogRepo> repos,
   ) async {
@@ -754,7 +770,7 @@ class CatalogService {
 
   /// Detect the dominant project type in [repoPath] and run the appropriate
   /// test command.
-  static Future<void> _runTestVerify(
+  Future<void> _runTestVerify(
     String localBasePath,
     List<CatalogRepo> repos,
   ) async {
@@ -791,7 +807,7 @@ class CatalogService {
 
   /// Resume onboarding from the first non-done step. Already-done steps are
   /// skipped automatically.
-  static Future<void> resumeOnboarding(String localBasePath) async {
+  Future<void> resumeOnboarding(String localBasePath) async {
     if (_onboardingChecklist == null) {
       throw Exception('No onboarding checklist — call startOnboarding() first');
     }
@@ -803,7 +819,7 @@ class CatalogService {
     );
 
     if (firstPending.status == OnboardingStatus.done) {
-      log('CatalogService.resumeOnboarding: all steps already done');
+      debugPrint('CatalogService.resumeOnboarding: all steps already done');
       return;
     }
 
@@ -824,7 +840,7 @@ class CatalogService {
   }
 
   /// Fetch the onboarding checklist from the server (remote state).
-  static Future<OnboardingChecklist?> getOnboardingState() async {
+  Future<OnboardingChecklist?> getOnboardingState() async {
     if (!isConnected) {
       throw Exception('Not connected to a catalog workspace');
     }
@@ -856,7 +872,7 @@ class CatalogService {
   // ── Disconnect ──
 
   /// Clear all local state and SharedPreferences keys.
-  static Future<void> disconnect() async {
+  Future<void> disconnect() async {
     final onboardingKey = _workspace != null ? _onboardingKey() : null;
 
     _workspace = null;
@@ -874,6 +890,6 @@ class CatalogService {
     }
 
     _notify();
-    log('CatalogService: disconnected');
+    debugPrint('CatalogService: disconnected');
   }
 }

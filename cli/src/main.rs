@@ -1,3 +1,5 @@
+mod serve;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -88,6 +90,21 @@ enum Commands {
         /// Badge style: flat, flat-square, for-the-badge
         #[arg(long, default_value = "flat")]
         style: String,
+    },
+    /// Start the Enterprise Catalog backend server (self-hosted mode)
+    Serve {
+        /// Port to listen on (default: 8743)
+        #[arg(long, default_value = "8743")]
+        port: u16,
+        /// Path to .env file for backend config (default: .env in current dir)
+        #[arg(long)]
+        env_file: Option<String>,
+        /// Use Docker Compose instead of the native binary (recommended for production)
+        #[arg(long)]
+        docker: bool,
+        /// Detach — run the server in the background (Docker mode only)
+        #[arg(long, short)]
+        detach: bool,
     },
     /// Join a catalog workspace (full onboarding flow)
     Join {
@@ -943,6 +960,9 @@ fn main() -> Result<()> {
             let projects = load_projects()?;
             let scores = load_health_scores();
             cmd_badge(&projects, &scores, &name, &style);
+        }
+        Commands::Serve { port, env_file, docker, detach } => {
+            serve::cmd_serve(port, env_file.as_deref(), docker, detach)?;
         }
         Commands::Join { url, base_path, token, org } => {
             let base = resolve_base_path(base_path);

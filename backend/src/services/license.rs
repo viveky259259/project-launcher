@@ -15,8 +15,10 @@ impl LicenseService {
         plan: Plan,
         expires_at: Option<bson::DateTime>,
     ) -> anyhow::Result<LicenseKey> {
+        // "lic_" prefix is intentionally distinct from API key prefix "plk_"
+        // to prevent license keys from being accepted as auth tokens.
         let key = format!(
-            "plk_live_{}",
+            "lic_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "")
         );
         let license = LicenseKey {

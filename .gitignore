@@ -56,3 +56,4 @@ cli/target/
 **/node_modules/
 .gstack/
 .claude/
+backend/target/

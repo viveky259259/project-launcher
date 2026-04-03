@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
@@ -64,25 +65,46 @@ async fn list_orgs(
         }
     };
 
-    // Build response with member counts
-    let mut result = Vec::with_capacity(orgs.len());
-    for org in &orgs {
-        let member_count = if let Some(org_id) = &org.id {
-            state
-                .db
-                .members()
-                .count_documents(bson::doc! { "orgId": org_id })
-                .await
-                .unwrap_or(0)
-        } else {
-            0
-        };
+    // Fetch all member counts in a single aggregation instead of N individual queries.
+    let count_pipeline = vec![
+        bson::doc! { "$group": { "_id": "$orgId", "count": { "$sum": 1 } } },
+    ];
+    let member_counts: HashMap<bson::oid::ObjectId, u64> = match state
+        .db
+        .members()
+        .aggregate(count_pipeline)
+        .await
+    {
+        Ok(cursor) => cursor
+            .try_collect::<Vec<bson::Document>>()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|doc| {
+                let org_id = doc.get_object_id("_id").ok()?;
+                let count = match doc.get("count") {
+                    Some(bson::Bson::Int32(n)) => *n as u64,
+                    Some(bson::Bson::Int64(n)) => *n as u64,
+                    _ => 0,
+                };
+                Some((org_id, count))
+            })
+            .collect(),
+        Err(_) => HashMap::new(),
+    };
 
-        result.push(serde_json::json!({
-            "org": org,
-            "memberCount": member_count,
-        }));
-    }
+    let result: Vec<_> = orgs
+        .iter()
+        .map(|org| {
+            let count = org
+                .id
+                .as_ref()
+                .and_then(|id| member_counts.get(id))
+                .copied()
+                .unwrap_or(0);
+            serde_json::json!({ "org": org, "memberCount": count })
+        })
+        .collect();
 
     (StatusCode::OK, Json(serde_json::json!(result))).into_response()
 }

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:launcher_theme/launcher_theme.dart';
 import 'filter_bar.dart';
 import '../catalog/catalog_drift_panel.dart';
+import '../../screens/onboarding_catalog_screen.dart';
+import '../../services/catalog_service.dart';
 
-class HomeSidePanel extends StatelessWidget {
+class HomeSidePanel extends StatefulWidget {
   final int totalProjects;
   final int healthyCount;
   final int needsAttentionCount;
@@ -28,11 +30,41 @@ class HomeSidePanel extends StatelessWidget {
   });
 
   @override
+  State<HomeSidePanel> createState() => _HomeSidePanelState();
+}
+
+class _HomeSidePanelState extends State<HomeSidePanel> {
+  @override
+  void initState() {
+    super.initState();
+    CatalogService.instance.addListener(_onCatalogUpdate);
+  }
+
+  @override
+  void dispose() {
+    CatalogService.instance.removeListener(_onCatalogUpdate);
+    super.dispose();
+  }
+
+  void _onCatalogUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  void _openTeamCatalog() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const OnboardingCatalogScreen(),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final skin = AppSkin.maybeOf(context);
     final panelWidth = skin?.spacing.sidePanelWidth ?? 240.0;
     final panelPadding = skin?.spacing.md ?? 16.0;
+    final isConnected = CatalogService.instance.isConnected;
 
     return Container(
       width: panelWidth,
@@ -43,7 +75,7 @@ class HomeSidePanel extends StatelessWidget {
         children: [
           // System Health summary
           GestureDetector(
-            onTap: onHealthTap,
+            onTap: widget.onHealthTap,
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -63,19 +95,19 @@ class HomeSidePanel extends StatelessWidget {
                   const SizedBox(height: 16),
                   _HealthRow(
                     label: 'Total Projects',
-                    value: totalProjects.toString(),
+                    value: widget.totalProjects.toString(),
                     color: cs.onSurface,
                   ),
                   const SizedBox(height: 8),
                   _HealthRow(
                     label: 'Healthy',
-                    value: healthyCount.toString(),
+                    value: widget.healthyCount.toString(),
                     color: AppColors.success,
                   ),
                   const SizedBox(height: 8),
                   _HealthRow(
                     label: 'Needs Attention',
-                    value: needsAttentionCount.toString(),
+                    value: widget.needsAttentionCount.toString(),
                     color: AppColors.warning,
                   ),
                 ],
@@ -105,7 +137,7 @@ class HomeSidePanel extends StatelessWidget {
                 const SizedBox(height: 16),
                 SizedBox(
                   height: 60,
-                  child: _MiniBarChart(data: weeklyActivity),
+                  child: _MiniBarChart(data: widget.weeklyActivity),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -146,29 +178,29 @@ class HomeSidePanel extends StatelessWidget {
                 const SizedBox(height: 12),
                 _ActivityRow(
                   label: 'This Week',
-                  value: activityCounts[ActivityFilter.thisWeek] ?? 0,
-                  total: totalProjects,
+                  value: widget.activityCounts[ActivityFilter.thisWeek] ?? 0,
+                  total: widget.totalProjects,
                   color: AppColors.success,
                 ),
                 const SizedBox(height: 8),
                 _ActivityRow(
                   label: 'Last Week',
-                  value: activityCounts[ActivityFilter.lastWeek] ?? 0,
-                  total: totalProjects,
+                  value: widget.activityCounts[ActivityFilter.lastWeek] ?? 0,
+                  total: widget.totalProjects,
                   color: AppColors.accent,
                 ),
                 const SizedBox(height: 8),
                 _ActivityRow(
                   label: 'This Month',
-                  value: activityCounts[ActivityFilter.thisMonth] ?? 0,
-                  total: totalProjects,
+                  value: widget.activityCounts[ActivityFilter.thisMonth] ?? 0,
+                  total: widget.totalProjects,
                   color: AppColors.warning,
                 ),
                 const SizedBox(height: 8),
                 _ActivityRow(
                   label: 'Older',
-                  value: (activityCounts[ActivityFilter.lastMonth] ?? 0) + (activityCounts[ActivityFilter.older] ?? 0),
-                  total: totalProjects,
+                  value: (widget.activityCounts[ActivityFilter.lastMonth] ?? 0) + (widget.activityCounts[ActivityFilter.older] ?? 0),
+                  total: widget.totalProjects,
                   color: const Color(0xFF6B7280),
                 ),
               ],
@@ -178,9 +210,9 @@ class HomeSidePanel extends StatelessWidget {
           const SizedBox(height: 12),
 
           // AI Insights card
-          if (onInsightsTap != null)
+          if (widget.onInsightsTap != null)
             GestureDetector(
-              onTap: onInsightsTap,
+              onTap: widget.onInsightsTap,
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -225,8 +257,17 @@ class HomeSidePanel extends StatelessWidget {
               ),
             ),
 
-          if (onInsightsTap != null)
+          if (widget.onInsightsTap != null)
             const SizedBox(height: 12),
+
+          // Team Catalog nav item
+          _TeamCatalogCard(
+            isConnected: isConnected,
+            onTap: _openTeamCatalog,
+            cs: cs,
+          ),
+
+          const SizedBox(height: 12),
 
           // Team Catalog drift panel
           const CatalogDriftPanel(),
@@ -235,7 +276,7 @@ class HomeSidePanel extends StatelessWidget {
 
           // Year in Review promo card
           GestureDetector(
-            onTap: onYearReviewTap,
+            onTap: widget.onYearReviewTap,
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -275,7 +316,7 @@ class HomeSidePanel extends StatelessWidget {
                       border: Border.all(color: Colors.white24),
                     ),
                     child: Text(
-                      isPro ? 'View Now' : 'Upgrade Now',
+                      widget.isPro ? 'View Now' : 'Upgrade Now',
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -288,6 +329,101 @@ class HomeSidePanel extends StatelessWidget {
           ),
         ],
       ),
+      ),
+    );
+  }
+}
+
+/// A tappable card that navigates to [OnboardingCatalogScreen].
+/// Shows a green connected-dot badge when the user is connected to a workspace,
+/// and "Connect" subtitle text when they are not.
+class _TeamCatalogCard extends StatelessWidget {
+  const _TeamCatalogCard({
+    required this.isConnected,
+    required this.onTap,
+    required this.cs,
+  });
+
+  final bool isConnected;
+  final VoidCallback onTap;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(
+            color: isConnected
+                ? AppColors.success.withValues(alpha: 0.3)
+                : cs.outline.withValues(alpha: 0.15),
+          ),
+        ),
+        child: Row(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isConnected
+                        ? AppColors.success.withValues(alpha: 0.12)
+                        : cs.onSurface.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Icon(
+                    Icons.hub_outlined,
+                    size: 18,
+                    color: isConnected ? AppColors.success : cs.onSurfaceVariant,
+                  ),
+                ),
+                if (isConnected)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: AppColors.success,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: cs.surface, width: 1.5),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Team Catalog',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  Text(
+                    isConnected ? 'Connected' : 'Connect',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: isConnected
+                              ? AppColors.success
+                              : cs.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 16, color: cs.onSurfaceVariant),
+          ],
+        ),
       ),
     );
   }

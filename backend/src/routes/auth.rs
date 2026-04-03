@@ -2,15 +2,16 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::Deserialize;
 
 use crate::app_state::AppState;
-use crate::middleware::auth::create_jwt;
+use crate::middleware::auth::{create_jwt, JwtClaims};
 use crate::models::Role;
 
 type SharedState = Arc<AppState>;
@@ -46,6 +47,37 @@ pub fn auth_routes() -> Router<SharedState> {
         .route("/:slug/github", get(org_github_login))
         .route("/super-admin/github", get(super_admin_github_login))
         .route("/callback", get(auth_callback))
+        .route("/logout", post(logout))
+}
+
+// ---------------------------------------------------------------------------
+// POST /auth/logout — revoke the caller's JWT immediately
+// ---------------------------------------------------------------------------
+
+/// Revoke the JWT supplied in the Authorization header.
+/// After this call the token is rejected by the auth middleware even if it
+/// has not yet expired. API keys are unaffected.
+async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> Response {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+
+    // Decode without full validation so we can still revoke expired-but-not-yet-
+    // cleaned-up tokens. We only care about extracting the jti.
+    let mut insecure = Validation::new(jsonwebtoken::Algorithm::HS256);
+    insecure.validate_exp = false;
+
+    if let Ok(data) = decode::<JwtClaims>(
+        token,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &insecure,
+    ) {
+        state.revoked_jwts.insert(data.claims.jti, ());
+    }
+
+    Json(serde_json::json!({ "ok": true })).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -67,16 +99,18 @@ async fn org_github_login(
         return (StatusCode::NOT_FOUND, Json(body)).into_response();
     }
 
-    // Encode the slug into the state parameter: "slug:random"
-    let random = uuid::Uuid::new_v4().to_string();
-    let oauth_state = format!("{slug}:{random}");
+    // Generate a one-time nonce and store the context (slug) server-side.
+    // The nonce alone is sent as the OAuth `state` param so the context
+    // cannot be forged by the client.
+    let nonce = uuid::Uuid::new_v4().to_string();
+    state.oauth_states.insert(nonce.clone(), slug);
 
     let redirect_uri = build_callback_uri();
     let url = format!(
         "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&state={}&scope=read:org,user",
         state.github_client_id,
         urlencoding(&redirect_uri),
-        urlencoding(&oauth_state),
+        urlencoding(&nonce),
     );
 
     Redirect::temporary(&url).into_response()
@@ -92,15 +126,15 @@ async fn super_admin_github_login(State(state): State<SharedState>) -> Response 
         return (StatusCode::NOT_FOUND, Json(body)).into_response();
     }
 
-    let random = uuid::Uuid::new_v4().to_string();
-    let oauth_state = format!("super-admin:{random}");
+    let nonce = uuid::Uuid::new_v4().to_string();
+    state.oauth_states.insert(nonce.clone(), "super-admin".to_string());
 
     let redirect_uri = build_callback_uri();
     let url = format!(
         "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&state={}&scope=read:org,user",
         state.github_client_id,
         urlencoding(&redirect_uri),
-        urlencoding(&oauth_state),
+        urlencoding(&nonce),
     );
 
     Redirect::temporary(&url).into_response()
@@ -130,29 +164,30 @@ async fn auth_callback(
 }
 
 async fn handle_callback(state: &AppState, params: &CallbackParams) -> anyhow::Result<Response> {
-    // Decode state to determine context
-    let state_parts: Vec<&str> = params.state.splitn(2, ':').collect();
-    if state_parts.len() < 2 {
-        let body = serde_json::json!({ "error": "Invalid state parameter" });
-        return Ok((StatusCode::BAD_REQUEST, Json(body)).into_response());
-    }
+    // Consume the nonce — removes it so it cannot be replayed.
+    // If the nonce is unknown or was never issued by this server, reject immediately.
+    let context = match state.oauth_states.remove(&params.state) {
+        Some((_, ctx)) => ctx,
+        None => {
+            let body = serde_json::json!({ "error": "Invalid or expired state parameter" });
+            return Ok((StatusCode::BAD_REQUEST, Json(body)).into_response());
+        }
+    };
 
-    let context = state_parts[0]; // slug or "super-admin"
     let is_super_admin_flow = context == "super-admin";
 
     // Exchange code for access token
     let access_token = exchange_code_for_token(state, &params.code).await?;
 
     // Get GitHub user info
-    let github_user = get_github_user(&access_token).await?;
+    let github_user = get_github_user(&state.http_client, &access_token).await?;
 
     if is_super_admin_flow {
         return handle_super_admin_callback(state, &github_user, params).await;
     }
 
     // Org-scoped flow
-    let slug = context;
-    handle_org_callback(state, slug, &github_user, &access_token, params).await
+    handle_org_callback(state, &context, &github_user, &access_token, params).await
 }
 
 async fn handle_super_admin_callback(
@@ -183,7 +218,7 @@ async fn handle_super_admin_callback(
 
     // Handle redirect
     if params.redirect.as_deref() == Some("super-admin") {
-        let redirect_url = format!("/?token={token}");
+        let redirect_url = format!("/#token={token}");
         return Ok(Redirect::temporary(&redirect_url).into_response());
     }
 
@@ -220,7 +255,7 @@ async fn handle_org_callback(
 
     // Check GitHub org membership
     let is_member =
-        check_github_org_membership(access_token, &org.github_org, &github_user.login).await?;
+        check_github_org_membership(&state.http_client, access_token, &org.github_org, &github_user.login).await?;
 
     if !is_member {
         let body = serde_json::json!({ "error": "Not a member of the GitHub organization" });
@@ -229,11 +264,14 @@ async fn handle_org_callback(
 
     let org_id = org.id.expect("org should have an _id");
 
-    // Determine role:
-    // 1. Check super_admins collection
-    // 2. Check existing member record
-    // 3. Create new member as Developer
-    let role = determine_role(state, &org_id, &github_user.login).await?;
+    // Determine role — returns None if the user has no member record (not invited).
+    let role = match determine_role(state, &org_id, &github_user.login).await? {
+        Some(r) => r,
+        None => {
+            let body = serde_json::json!({ "error": "Not invited to this organization" });
+            return Ok((StatusCode::FORBIDDEN, Json(body)).into_response());
+        }
+    };
 
     // Issue JWT
     let token = create_jwt(
@@ -248,7 +286,7 @@ async fn handle_org_callback(
     if let Some(redirect_target) = &params.redirect {
         match redirect_target.as_str() {
             "admin" | "super-admin" => {
-                let redirect_url = format!("/?token={token}");
+                let redirect_url = format!("/#token={token}");
                 return Ok(Redirect::temporary(&redirect_url).into_response());
             }
             _ => {}
@@ -259,13 +297,14 @@ async fn handle_org_callback(
     Ok(Json(body).into_response())
 }
 
-/// Determine the role for a user in an org.
+/// Determine the role for an authenticated GitHub user in an org.
+/// Returns `None` if the user has not been explicitly invited — callers must reject with 403.
 async fn determine_role(
     state: &AppState,
     org_id: &bson::oid::ObjectId,
     github_login: &str,
-) -> anyhow::Result<Role> {
-    // Check if user is a super admin
+) -> anyhow::Result<Option<Role>> {
+    // Super admins can access any org
     let sa = state
         .db
         .super_admins()
@@ -273,35 +312,17 @@ async fn determine_role(
         .await?;
 
     if sa.is_some() {
-        return Ok(Role::SuperAdmin);
+        return Ok(Some(Role::SuperAdmin));
     }
 
-    // Check existing membership
+    // Must have an existing member record (created via the invite endpoint)
     let member = state
         .db
         .members()
         .find_one(bson::doc! { "orgId": org_id, "githubLogin": github_login })
         .await?;
 
-    if let Some(m) = member {
-        return Ok(m.role);
-    }
-
-    // Create new member as Developer
-    let new_member = crate::models::Member {
-        id: None,
-        org_id: *org_id,
-        github_login: github_login.to_string(),
-        github_avatar: None,
-        role: Role::Developer,
-        invited_by: None,
-        joined_at: bson::DateTime::now(),
-        last_seen_at: None,
-    };
-
-    state.db.members().insert_one(new_member).await?;
-
-    Ok(Role::Developer)
+    Ok(member.map(|m| m.role))
 }
 
 // ---------------------------------------------------------------------------
@@ -309,7 +330,7 @@ async fn determine_role(
 // ---------------------------------------------------------------------------
 
 async fn exchange_code_for_token(state: &AppState, code: &str) -> anyhow::Result<String> {
-    let client = reqwest::Client::new();
+    let client = &state.http_client;
     let resp = client
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
@@ -331,8 +352,7 @@ async fn exchange_code_for_token(state: &AppState, code: &str) -> anyhow::Result
     Ok(token_resp.access_token)
 }
 
-async fn get_github_user(access_token: &str) -> anyhow::Result<GithubUser> {
-    let client = reqwest::Client::new();
+async fn get_github_user(client: &reqwest::Client, access_token: &str) -> anyhow::Result<GithubUser> {
     let resp = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {access_token}"))
@@ -351,11 +371,11 @@ async fn get_github_user(access_token: &str) -> anyhow::Result<GithubUser> {
 }
 
 async fn check_github_org_membership(
+    client: &reqwest::Client,
     access_token: &str,
     org: &str,
     username: &str,
 ) -> anyhow::Result<bool> {
-    let client = reqwest::Client::new();
     let resp = client
         .get(format!(
             "https://api.github.com/orgs/{org}/members/{username}"
@@ -378,15 +398,6 @@ fn build_callback_uri() -> String {
         .unwrap_or_else(|_| "http://localhost:8743/auth/callback".to_string())
 }
 
-/// Simple percent-encoding for URL parameters.
 fn urlencoding(s: &str) -> String {
-    // Use a simple manual encoding for the characters that matter in URLs.
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace(':', "%3A")
-        .replace('/', "%2F")
-        .replace('?', "%3F")
-        .replace('#', "%23")
-        .replace('&', "%26")
-        .replace('=', "%3D")
+    urlencoding::encode(s).into_owned()
 }

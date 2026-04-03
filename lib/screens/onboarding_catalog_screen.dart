@@ -33,12 +33,12 @@ class _OnboardingCatalogScreenState extends State<OnboardingCatalogScreen> {
   @override
   void initState() {
     super.initState();
-    CatalogService.addListener(_onServiceUpdate);
+    CatalogService.instance.addListener(_onServiceUpdate);
   }
 
   @override
   void dispose() {
-    CatalogService.removeListener(_onServiceUpdate);
+    CatalogService.instance.removeListener(_onServiceUpdate);
     super.dispose();
   }
 
@@ -52,7 +52,7 @@ class _OnboardingCatalogScreenState extends State<OnboardingCatalogScreen> {
       _resumeError = null;
     });
     try {
-      await CatalogService.resumeOnboarding(_localBasePath);
+      await CatalogService.instance.resumeOnboarding(_localBasePath);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -68,7 +68,7 @@ class _OnboardingCatalogScreenState extends State<OnboardingCatalogScreen> {
     final repoName = step.repoName;
     if (repoName == null) return;
 
-    final catalog = CatalogService.catalog;
+    final catalog = CatalogService.instance.catalog;
     if (catalog == null) return;
 
     final repo = catalog.repos
@@ -115,8 +115,8 @@ class _OnboardingCatalogScreenState extends State<OnboardingCatalogScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final checklist = CatalogService.onboardingChecklist;
-    final workspace = CatalogService.workspace;
+    final checklist = CatalogService.instance.onboardingChecklist;
+    final workspace = CatalogService.instance.workspace;
 
     if (checklist == null) {
       return Scaffold(
@@ -502,7 +502,7 @@ class _StepRow extends StatelessWidget {
     final isEnvStep = step.id.startsWith('env_');
     final needsEnvSetup = isEnvStep &&
         step.repoName != null &&
-        CatalogService.needsEnvSetup(step.repoName!);
+        CatalogService.instance.needsEnvSetup(step.repoName!);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

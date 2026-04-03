@@ -116,14 +116,6 @@ fn json_error(status: StatusCode, msg: &str) -> (StatusCode, Json<serde_json::Va
 }
 
 /// Mask an API key: show first 8 chars + last 4 chars, e.g. "plk_abcd...wxyz"
-fn mask_key(key: &str) -> String {
-    if key.len() <= 12 {
-        return key.to_string();
-    }
-    let prefix = &key[..8];
-    let suffix = &key[key.len() - 4..];
-    format!("{prefix}...{suffix}")
-}
 
 // ===========================================================================
 // Helper: get the latest catalog for an org
@@ -285,7 +277,7 @@ async fn invite_member(
         StatusCode::CREATED,
         Json(serde_json::json!({
             "member": body.github_login,
-            "apiKey": api_key.key,
+            "apiKey": api_key.plaintext,
         })),
     ))
 }
@@ -390,7 +382,7 @@ async fn list_member_keys(
     let masked: Vec<MaskedApiKey> = keys
         .into_iter()
         .map(|k| MaskedApiKey {
-            key: mask_key(&k.key),
+            key: k.key_prefix.clone(),
             role: k.role,
             created_at: k.created_at,
             last_used_at: k.last_used_at,
@@ -425,7 +417,7 @@ async fn generate_member_key(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::json!({ "apiKey": api_key.key })),
+        Json(serde_json::json!({ "apiKey": api_key.plaintext })),
     ))
 }
 
