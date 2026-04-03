@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:launcher_models/launcher_models.dart';
 import 'package:launcher_native/launcher_native.dart';
 import 'package:launcher_theme/launcher_theme.dart';
+import '../../services/gemini_service.dart';
+import '../../services/netlaunch_service.dart';
+import '../../services/platform_helper.dart';
 import '../../services/release_service.dart';
 import '../../services/version_detector.dart';
 
@@ -25,6 +30,7 @@ class _ReleaseSectionState extends State<ReleaseSection> {
   ReleaseProcess? _releaseProcess;
   bool _creatingTag = false;
   bool _shippingRelease = false;
+  bool _deployingNetLaunch = false;
 
   @override
   void initState() {
@@ -516,6 +522,12 @@ class _ReleaseSectionState extends State<ReleaseSection> {
                 _creatingTag ? null : _createGitHubRelease,
                 cs,
               ),
+              _releaseAction(
+                'Deploy to NetLaunch',
+                Icons.cloud_upload_rounded,
+                _deployingNetLaunch ? null : () => _deployToNetLaunch(cs),
+                cs,
+              ),
             ],
           ),
         ],
@@ -816,6 +828,38 @@ class _ReleaseSectionState extends State<ReleaseSection> {
     _loadReleaseData();
   }
 
+  Future<void> _deployToNetLaunch(ColorScheme cs) async {
+    setState(() => _deployingNetLaunch = true);
+
+    // Show the progress dialog
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _NetLaunchDeployDialog(
+        projectPath: widget.project.path,
+        projectName: widget.project.name,
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _deployingNetLaunch = false);
+      if (result == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Deployed to NetLaunch')),
+              ],
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _oneClickRelease(String level) async {
     final currentVersion = _releaseInfo?.version;
     if (currentVersion == null) return;
@@ -1034,4 +1078,972 @@ class _ReleaseSectionState extends State<ReleaseSection> {
       _loadReleaseData();
     }
   }
+}
+
+// ─── NetLaunch Deploy Dialog ───────────────────────────────────────────
+
+enum _DeployStep { checkCli, install, login, configure, deploy, done }
+
+class _NetLaunchDeployDialog extends StatefulWidget {
+  final String projectPath;
+  final String projectName;
+
+  const _NetLaunchDeployDialog({
+    required this.projectPath,
+    required this.projectName,
+  });
+
+  @override
+  State<_NetLaunchDeployDialog> createState() => _NetLaunchDeployDialogState();
+}
+
+class _NetLaunchDeployDialogState extends State<_NetLaunchDeployDialog> {
+  _DeployStep _currentStep = _DeployStep.checkCli;
+  final List<_StepLog> _logs = [];
+  bool _cliInstalled = false;
+  bool _loggedIn = false;
+  bool _failed = false;
+  String? _deployUrl;
+  String? _errorDetail;
+
+  // User-configurable fields
+  late final TextEditingController _siteNameController;
+  late final TextEditingController _deployDirController;
+  late final TextEditingController _apiKeyController;
+  late final TextEditingController _buildCmdController;
+  late final TextEditingController _outputDirController;
+  bool _showApiKey = false;
+  bool _suggestingBuild = false;
+  bool _runningBuild = false;
+  bool _buildCompleted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default site name from project name (sanitized)
+    final safeName = widget.projectName
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9-]'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    _siteNameController = TextEditingController(
+      text: safeName.length >= 3 ? safeName : 'my-site',
+    );
+    _deployDirController = TextEditingController(text: widget.projectPath);
+    _apiKeyController = TextEditingController();
+    _buildCmdController = TextEditingController();
+    _outputDirController = TextEditingController();
+    _startChecks();
+    _loadLastDeploy();
+  }
+
+  @override
+  void dispose() {
+    _siteNameController.dispose();
+    _deployDirController.dispose();
+    _apiKeyController.dispose();
+    _buildCmdController.dispose();
+    _outputDirController.dispose();
+    super.dispose();
+  }
+
+  void _addLog(String message, {bool isError = false, bool isSuccess = false}) {
+    if (mounted) {
+      setState(() {
+        _logs.add(_StepLog(
+          message: message,
+          isError: isError,
+          isSuccess: isSuccess,
+          timestamp: DateTime.now(),
+        ));
+      });
+    }
+  }
+
+  Future<void> _loadLastDeploy() async {
+    final history = await NetLaunchService.getDeployHistoryForProject(
+      widget.projectPath,
+    );
+    if (history.isNotEmpty && mounted) {
+      final last = history.first;
+      setState(() {
+        _siteNameController.text = last.siteName;
+        if (last.buildCommand != null && last.buildCommand!.isNotEmpty) {
+          _buildCmdController.text = last.buildCommand!;
+        }
+        if (last.outputDir != null && last.outputDir!.isNotEmpty) {
+          _outputDirController.text = last.outputDir!;
+        }
+      });
+      _addLog('Loaded last deploy: ${last.url}', isSuccess: true);
+    }
+  }
+
+  Future<void> _startChecks() async {
+    _addLog('Checking prerequisites...');
+
+    // Check npm
+    final npmAvailable = await NetLaunchService.isNpmAvailable();
+    if (!npmAvailable) {
+      _addLog('npm not found — Node.js is required', isError: true);
+      setState(() {
+        _failed = true;
+        _errorDetail = 'Install Node.js from https://nodejs.org';
+      });
+      return;
+    }
+    _addLog('npm available', isSuccess: true);
+
+    // Check netlaunch CLI
+    _cliInstalled = await NetLaunchService.isInstalled();
+    if (_cliInstalled) {
+      _addLog('netlaunch CLI installed', isSuccess: true);
+
+      // Check login
+      _loggedIn = await NetLaunchService.isLoggedIn();
+      if (_loggedIn) {
+        _addLog('Logged in to NetLaunch', isSuccess: true);
+      } else {
+        _addLog('Not logged in (API key or login required)');
+      }
+
+      // Move to configure step
+      if (mounted) setState(() => _currentStep = _DeployStep.configure);
+    } else {
+      _addLog('netlaunch CLI not found');
+      // Check npx fallback
+      final npxAvailable = await NetLaunchService.isNpxAvailable();
+      if (npxAvailable) {
+        _addLog('npx available (can deploy without installing)');
+      }
+      if (mounted) setState(() => _currentStep = _DeployStep.install);
+    }
+  }
+
+  Future<void> _installCli() async {
+    _addLog('Installing netlaunch...');
+    setState(() => _currentStep = _DeployStep.install);
+
+    final result = await NetLaunchService.install(
+      onProgress: (status) => _addLog(status),
+    );
+
+    if (result.success) {
+      _addLog(result.message, isSuccess: true);
+      _cliInstalled = true;
+      if (mounted) setState(() => _currentStep = _DeployStep.configure);
+    } else {
+      _addLog(result.message, isError: true);
+      if (result.error != null) {
+        _addLog(result.error!);
+      }
+      // Still allow configuring — npx fallback will be used
+      if (mounted) setState(() => _currentStep = _DeployStep.configure);
+    }
+  }
+
+  Future<void> _loginCli() async {
+    _addLog('Opening browser for login...');
+    setState(() => _currentStep = _DeployStep.login);
+
+    final result = await NetLaunchService.login(
+      onProgress: (status) => _addLog(status),
+    );
+
+    if (result.success) {
+      _addLog(result.message, isSuccess: true);
+      _loggedIn = true;
+    } else {
+      _addLog(result.message, isError: true);
+      _addLog('You can still deploy using an API key');
+    }
+
+    if (mounted) setState(() => _currentStep = _DeployStep.configure);
+  }
+
+  Future<void> _suggestBuildWithGemini() async {
+    setState(() => _suggestingBuild = true);
+    _addLog('Asking Gemini to analyze project...');
+
+    final suggestion = await GeminiService.suggestBuildCommands(
+      projectPath: widget.projectPath,
+      onProgress: (status) => _addLog(status),
+    );
+
+    if (suggestion != null) {
+      setState(() {
+        _buildCmdController.text = suggestion.buildCommand;
+        _outputDirController.text = suggestion.outputDir;
+        _suggestingBuild = false;
+      });
+      _addLog('Build: ${suggestion.buildCommand}', isSuccess: true);
+      _addLog('Output: ${suggestion.outputDir}', isSuccess: true);
+    } else {
+      _addLog('Could not get suggestion — enter commands manually', isError: true);
+      setState(() => _suggestingBuild = false);
+    }
+  }
+
+  Future<void> _runBuildAndDeploy() async {
+    final buildCmd = _buildCmdController.text.trim();
+    final outputDir = _outputDirController.text.trim();
+
+    if (buildCmd.isEmpty) {
+      // No build needed, go straight to deploy
+      _startDeploy();
+      return;
+    }
+
+    setState(() => _runningBuild = true);
+    _addLog('Running build commands...');
+    _addLog('\$ $buildCmd');
+
+    try {
+      final result = await Process.run(
+        '/bin/zsh',
+        ['-l', '-c', buildCmd],
+        workingDirectory: widget.projectPath,
+        environment: Platform.environment,
+      );
+
+      // Show output lines
+      final stdout = result.stdout.toString().trim();
+      final stderr = result.stderr.toString().trim();
+      if (stdout.isNotEmpty) {
+        // Show last few lines of output
+        final lines = stdout.split('\n');
+        final tail = lines.length > 5 ? lines.sublist(lines.length - 5) : lines;
+        for (final line in tail) {
+          _addLog(line);
+        }
+      }
+
+      if (result.exitCode != 0) {
+        _addLog('Build failed (exit ${result.exitCode})', isError: true);
+        if (stderr.isNotEmpty) {
+          final errLines = stderr.split('\n');
+          for (final line in errLines.take(3)) {
+            _addLog(line, isError: true);
+          }
+        }
+        setState(() => _runningBuild = false);
+        return;
+      }
+
+      _addLog('Build completed successfully', isSuccess: true);
+
+      // Update deploy dir to the build output
+      final resolvedDir = outputDir.startsWith('/')
+          ? outputDir
+          : '${widget.projectPath}/$outputDir';
+      _deployDirController.text = resolvedDir;
+      setState(() {
+        _runningBuild = false;
+        _buildCompleted = true;
+      });
+
+      // Proceed to deploy
+      _startDeploy();
+    } catch (e) {
+      _addLog('Build error: $e', isError: true);
+      setState(() => _runningBuild = false);
+    }
+  }
+
+  Future<void> _startDeploy() async {
+    final siteName = _siteNameController.text.trim();
+    final deployDir = _deployDirController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
+
+    // Validate site name
+    if (siteName.length < 3 || siteName.length > 30) {
+      _addLog('Site name must be 3-30 characters', isError: true);
+      return;
+    }
+    if (!RegExp(r'^[a-z][a-z0-9-]*[a-z0-9]$').hasMatch(siteName)) {
+      _addLog(
+        'Site name: lowercase letters, numbers, hyphens only. Must start with a letter.',
+        isError: true,
+      );
+      return;
+    }
+
+    setState(() => _currentStep = _DeployStep.deploy);
+    _addLog('Starting deployment to $siteName.web.app...');
+
+    final result = await NetLaunchService.deploy(
+      deployDir: deployDir,
+      siteName: siteName,
+      apiKey: apiKey.isNotEmpty ? apiKey : null,
+      onProgress: (status) => _addLog(status),
+    );
+
+    if (result.success) {
+      _addLog('Deployed successfully!', isSuccess: true);
+      _addLog(result.message, isSuccess: true);
+
+      // Save deploy record
+      await NetLaunchService.saveDeployRecord(DeployRecord(
+        projectPath: widget.projectPath,
+        projectName: widget.projectName,
+        siteName: siteName,
+        url: result.message,
+        buildCommand: _buildCmdController.text.trim().isNotEmpty
+            ? _buildCmdController.text.trim()
+            : null,
+        outputDir: _outputDirController.text.trim().isNotEmpty
+            ? _outputDirController.text.trim()
+            : null,
+        deployedAt: DateTime.now(),
+      ));
+      _addLog('Deploy record saved', isSuccess: true);
+
+      setState(() {
+        _deployUrl = result.message;
+        _currentStep = _DeployStep.done;
+      });
+    } else {
+      _addLog(result.message, isError: true);
+      if (result.error != null) {
+        setState(() => _errorDetail = result.error);
+      }
+      setState(() => _failed = true);
+    }
+  }
+
+  void _skipInstall() {
+    _addLog('Skipping install — will use npx fallback');
+    if (mounted) setState(() => _currentStep = _DeployStep.configure);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      backgroundColor: cs.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+      ),
+      title: Row(
+        children: [
+          Icon(Icons.cloud_upload_rounded, color: AppColors.accent, size: 22),
+          const SizedBox(width: 10),
+          Text(
+            'Deploy to NetLaunch',
+            style: AppTypography.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: cs.onSurface,
+            ),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Step indicator
+            _buildStepIndicator(cs),
+            const SizedBox(height: 16),
+
+            // Action area (install/configure/deploy)
+            if (_currentStep == _DeployStep.install && !_cliInstalled)
+              _buildInstallPrompt(cs),
+            if (_currentStep == _DeployStep.configure)
+              _buildConfigForm(cs),
+
+            // Progress log
+            const SizedBox(height: 12),
+            Container(
+              height: 180,
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: cs.outline.withValues(alpha: 0.1)),
+              ),
+              child: ListView.builder(
+                itemCount: _logs.length,
+                itemBuilder: (_, i) => _buildLogLine(_logs[i], cs),
+              ),
+            ),
+
+            // Error detail
+            if (_errorDetail != null) ...[
+              const SizedBox(height: 8),
+              SelectableText(
+                _errorDetail!,
+                style: AppTypography.mono(
+                  fontSize: 11,
+                  color: AppColors.error.withValues(alpha: 0.8),
+                ),
+                maxLines: 3,
+              ),
+            ],
+
+            // Success result
+            if (_deployUrl != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: AppColors.success.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: InkWell(
+                  onTap: () => PlatformHelper.openUrl(_deployUrl!),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded,
+                          color: AppColors.success, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _deployUrl!,
+                          style: AppTypography.mono(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.accent,
+                          ).copyWith(decoration: TextDecoration.underline),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.open_in_new_rounded,
+                          size: 16, color: AppColors.accent),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _currentStep == _DeployStep.done,
+          ),
+          child: Text(
+            _currentStep == _DeployStep.done ? 'Done' : 'Cancel',
+            style: AppTypography.inter(fontSize: 13, color: cs.onSurfaceVariant),
+          ),
+        ),
+        if (_currentStep == _DeployStep.configure)
+          ElevatedButton.icon(
+            onPressed: (_failed || _runningBuild || _suggestingBuild)
+                ? null
+                : _runBuildAndDeploy,
+            icon: _runningBuild
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : Icon(
+                    _buildCmdController.text.trim().isNotEmpty
+                        ? Icons.build_circle_rounded
+                        : Icons.cloud_upload_rounded,
+                    size: 16,
+                  ),
+            label: Text(_runningBuild
+                ? 'Building...'
+                : _buildCmdController.text.trim().isNotEmpty
+                    ? 'Build & Deploy'
+                    : 'Deploy'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStepIndicator(ColorScheme cs) {
+    final steps = [
+      ('Check', _DeployStep.checkCli),
+      ('Install', _DeployStep.install),
+      ('Configure', _DeployStep.configure),
+      ('Deploy', _DeployStep.deploy),
+      ('Done', _DeployStep.done),
+    ];
+
+    return Row(
+      children: [
+        for (var i = 0; i < steps.length; i++) ...[
+          if (i > 0)
+            Expanded(
+              child: Container(
+                height: 2,
+                color: steps[i].$2.index <= _currentStep.index
+                    ? AppColors.accent
+                    : cs.outline.withValues(alpha: 0.15),
+              ),
+            ),
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: steps[i].$2.index < _currentStep.index
+                  ? AppColors.success
+                  : steps[i].$2 == _currentStep
+                      ? AppColors.accent
+                      : cs.surfaceContainerHighest,
+              border: Border.all(
+                color: steps[i].$2.index <= _currentStep.index
+                    ? AppColors.accent
+                    : cs.outline.withValues(alpha: 0.2),
+                width: 1.5,
+              ),
+            ),
+            child: Center(
+              child: steps[i].$2.index < _currentStep.index
+                  ? const Icon(Icons.check, size: 14, color: Colors.white)
+                  : Text(
+                      '${i + 1}',
+                      style: AppTypography.mono(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: steps[i].$2 == _currentStep
+                            ? Colors.white
+                            : cs.onSurfaceVariant,
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildInstallPrompt(ColorScheme cs) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.download_rounded, size: 18, color: AppColors.warning),
+              const SizedBox(width: 8),
+              Text(
+                'NetLaunch CLI not found',
+                style: AppTypography.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Install globally for faster deploys, or skip to use npx (downloads each time).',
+            style: AppTypography.inter(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: _installCli,
+                icon: const Icon(Icons.download_rounded, size: 16),
+                label: const Text('Install netlaunch'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  textStyle: AppTypography.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: _skipInstall,
+                child: Text(
+                  'Skip (use npx)',
+                  style: AppTypography.inter(
+                    fontSize: 12,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConfigForm(ColorScheme cs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Site name
+        Text(
+          'Site Name',
+          style: AppTypography.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _siteNameController,
+                style: AppTypography.mono(fontSize: 13, color: cs.onSurface),
+                decoration: InputDecoration(
+                  hintText: 'my-site',
+                  hintStyle: AppTypography.mono(
+                    fontSize: 13,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(
+                      color: cs.outline.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(
+                      color: cs.outline.withValues(alpha: 0.2),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '.web.app',
+              style: AppTypography.mono(
+                fontSize: 12,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // Deploy directory
+        Text(
+          'Deploy Directory',
+          style: AppTypography.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _deployDirController,
+          style: AppTypography.mono(fontSize: 12, color: cs.onSurface),
+          decoration: InputDecoration(
+            hintText: '/path/to/build',
+            hintStyle: AppTypography.mono(
+              fontSize: 12,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              borderSide:
+                  BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              borderSide:
+                  BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Build commands section
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.12)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.terminal_rounded, size: 16, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Text(
+                    _buildCompleted ? 'Build Commands (done)' : 'Build Commands',
+                    style: AppTypography.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _buildCompleted ? AppColors.success : cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '(optional — skip if already built)',
+                    style: AppTypography.inter(fontSize: 10, color: cs.onSurfaceVariant),
+                  ),
+                  const Spacer(),
+                  if (GeminiService.isConfigured)
+                    TextButton.icon(
+                      onPressed: _suggestingBuild ? null : _suggestBuildWithGemini,
+                      icon: _suggestingBuild
+                          ? SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: AppColors.accent,
+                              ),
+                            )
+                          : Icon(Icons.auto_awesome_rounded, size: 14, color: AppColors.accent),
+                      label: Text(
+                        _suggestingBuild ? 'Asking Gemini...' : 'Ask Gemini',
+                        style: AppTypography.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.accent,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _buildCmdController,
+                style: AppTypography.mono(fontSize: 12, color: cs.onSurface),
+                maxLines: 2,
+                decoration: InputDecoration(
+                  hintText: 'e.g. flutter build web --release',
+                  hintStyle: AppTypography.mono(
+                    fontSize: 11,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+                  ),
+                  prefixIcon: Padding(
+                    padding: const EdgeInsets.only(left: 8, right: 4),
+                    child: Text('\$', style: AppTypography.mono(fontSize: 12, color: cs.onSurfaceVariant)),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'Output directory',
+                    style: AppTypography.inter(fontSize: 11, color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _outputDirController,
+                      style: AppTypography.mono(fontSize: 11, color: cs.onSurface),
+                      decoration: InputDecoration(
+                        hintText: 'build/web',
+                        hintStyle: AppTypography.mono(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                        ),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // API key (optional)
+        Row(
+          children: [
+            Text(
+              'API Key',
+              style: AppTypography.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '(optional if logged in)',
+              style: AppTypography.inter(
+                fontSize: 11,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const Spacer(),
+            if (!_loggedIn && !_cliInstalled)
+              TextButton.icon(
+                onPressed: _cliInstalled ? _loginCli : null,
+                icon: const Icon(Icons.login_rounded, size: 14),
+                label: const Text('Login instead'),
+                style: TextButton.styleFrom(
+                  textStyle: AppTypography.inter(fontSize: 11),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _apiKeyController,
+          obscureText: !_showApiKey,
+          style: AppTypography.mono(fontSize: 12, color: cs.onSurface),
+          decoration: InputDecoration(
+            hintText: 'fk_...',
+            hintStyle: AppTypography.mono(
+              fontSize: 12,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              borderSide:
+                  BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              borderSide:
+                  BorderSide(color: cs.outline.withValues(alpha: 0.2)),
+            ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _showApiKey
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
+                size: 16,
+              ),
+              onPressed: () => setState(() => _showApiKey = !_showApiKey),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(maxWidth: 32, maxHeight: 32),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLogLine(_StepLog log, ColorScheme cs) {
+    final icon = log.isError
+        ? Icons.cancel_rounded
+        : log.isSuccess
+            ? Icons.check_circle_rounded
+            : Icons.arrow_forward_rounded;
+    final color = log.isError
+        ? AppColors.error
+        : log.isSuccess
+            ? AppColors.success
+            : cs.onSurfaceVariant.withValues(alpha: 0.6);
+    final timeStr =
+        '${log.timestamp.hour.toString().padLeft(2, '0')}:${log.timestamp.minute.toString().padLeft(2, '0')}:${log.timestamp.second.toString().padLeft(2, '0')}';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            timeStr,
+            style: AppTypography.mono(
+              fontSize: 10,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              log.message,
+              style: AppTypography.mono(fontSize: 11, color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepLog {
+  final String message;
+  final bool isError;
+  final bool isSuccess;
+  final DateTime timestamp;
+
+  const _StepLog({
+    required this.message,
+    this.isError = false,
+    this.isSuccess = false,
+    required this.timestamp,
+  });
 }

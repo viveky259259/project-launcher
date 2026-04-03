@@ -13,6 +13,8 @@ macOS developer dashboard — discover, organize, and launch projects. Flutter +
 | `make install` | Build + install to /Applications + codesign |
 | `make bootstrap` | Install Melos + resolve all packages |
 | `make clean` | Clean all build artifacts |
+| `make deploy-checkout` | Deploy checkout pages to NetLaunch |
+| `make deploy-web` | Build & deploy Flutter web to NetLaunch |
 
 ## Architecture
 
@@ -64,3 +66,18 @@ rust/libproject_launcher_core.dylib → launcher_native (via FFI)
 - Major: `make release-major`
 - Dry run: `make release-dry`
 - Full script: `./scripts/release.sh <patch|minor|major> [--dry-run]`
+
+## NetLaunch Deployment
+
+Deploy static sites via [NetLaunch](https://netlaunch-docs.web.app). Sites go live at `https://<site-name>.web.app`.
+
+| Command | What it deploys |
+|---------|----------------|
+| `make deploy-checkout` | Checkout pages → `project-launcher-checkout.web.app` |
+| `make deploy-web` | Flutter web build → `project-launcher.web.app` |
+| `./scripts/deploy-netlaunch.sh <target> [--site <name>] [--dry-run]` | Full options |
+
+**Setup:**
+1. `npm install -g netlaunch && netlaunch login` (local) or set `NETLAUNCH_KEY` env var (CI)
+2. Generate API key from [dashboard](https://deployinstantwebapp.web.app) Settings → Generate Key
+3. Add `NETLAUNCH_KEY` to GitHub repo secrets for CI/CD auto-deploy

@@ -221,7 +221,8 @@ flutter clean
 flutter pub get
 flutter build macos --release \
   --dart-define=PADDLE_API_KEY="$PADDLE_API_KEY" \
-  --dart-define=PADDLE_IS_SANDBOX="$PADDLE_IS_SANDBOX"
+  --dart-define=PADDLE_IS_SANDBOX="$PADDLE_IS_SANDBOX" \
+  --dart-define=GEMINI_API_KEY="$GEMINI_API_KEY"
 echo "  ✓ Flutter app built"
 
 echo "  ▸ Copying native library to app bundle..."

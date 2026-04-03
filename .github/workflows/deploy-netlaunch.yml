@@ -1,0 +1,71 @@
+name: Deploy to NetLaunch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'checkout/**'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target (checkout or web)'
+        required: true
+        default: 'checkout'
+        type: choice
+        options:
+          - checkout
+          - web
+      site:
+        description: 'Site name override (optional)'
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy to NetLaunch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Flutter web build (only for web target)
+      - name: Setup Flutter
+        if: github.event.inputs.target == 'web'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Build Flutter web
+        if: github.event.inputs.target == 'web'
+        run: flutter build web --release
+
+      # Determine deploy target
+      - name: Set deploy target
+        id: target
+        run: |
+          TARGET="${{ github.event.inputs.target || 'checkout' }}"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+          if [ "$TARGET" = "checkout" ]; then
+            echo "dir=checkout" >> "$GITHUB_OUTPUT"
+            echo "site=${SITE_OVERRIDE:-project-launcher-checkout}" >> "$GITHUB_OUTPUT"
+          elif [ "$TARGET" = "web" ]; then
+            echo "dir=build/web" >> "$GITHUB_OUTPUT"
+            echo "site=${SITE_OVERRIDE:-project-launcher}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          SITE_OVERRIDE: ${{ github.event.inputs.site }}
+
+      # Zip and deploy
+      - name: Create ZIP archive
+        run: |
+          cd ${{ steps.target.outputs.dir }}
+          zip -r ../deploy.zip . -x '*.DS_Store' -x '__MACOSX/*'
+
+      - name: Deploy to NetLaunch
+        env:
+          NETLAUNCH_KEY: ${{ secrets.NETLAUNCH_KEY }}
+        run: npx netlaunch deploy -s ${{ steps.target.outputs.site }} -f ./deploy.zip
