@@ -2,15 +2,16 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::Deserialize;
 
 use crate::app_state::AppState;
-use crate::middleware::auth::create_jwt;
+use crate::middleware::auth::{create_jwt, JwtClaims};
 use crate::models::Role;
 
 type SharedState = Arc<AppState>;
@@ -46,6 +47,37 @@ pub fn auth_routes() -> Router<SharedState> {
         .route("/:slug/github", get(org_github_login))
         .route("/super-admin/github", get(super_admin_github_login))
         .route("/callback", get(auth_callback))
+        .route("/logout", post(logout))
+}
+
+// ---------------------------------------------------------------------------
+// POST /auth/logout — revoke the caller's JWT immediately
+// ---------------------------------------------------------------------------
+
+/// Revoke the JWT supplied in the Authorization header.
+/// After this call the token is rejected by the auth middleware even if it
+/// has not yet expired. API keys are unaffected.
+async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> Response {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+
+    // Decode without full validation so we can still revoke expired-but-not-yet-
+    // cleaned-up tokens. We only care about extracting the jti.
+    let mut insecure = Validation::new(jsonwebtoken::Algorithm::HS256);
+    insecure.validate_exp = false;
+
+    if let Ok(data) = decode::<JwtClaims>(
+        token,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &insecure,
+    ) {
+        state.revoked_jwts.insert(data.claims.jti, ());
+    }
+
+    Json(serde_json::json!({ "ok": true })).into_response()
 }
 
 // ---------------------------------------------------------------------------

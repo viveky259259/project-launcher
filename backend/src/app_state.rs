@@ -28,4 +28,9 @@ pub struct AppState {
     /// Maps nonce → context ("super-admin" or org slug).
     /// Entries are inserted at OAuth initiation and removed (consumed) at callback.
     pub oauth_states: dashmap::DashMap<String, String>,
+    /// Revoked JWT IDs. Tokens whose `jti` appears here are rejected immediately,
+    /// regardless of their expiry. Populated by POST /auth/logout.
+    /// Note: in-memory only — clears on restart. For multi-instance deployments,
+    /// back this with Redis.
+    pub revoked_jwts: dashmap::DashMap<String, ()>,
 }

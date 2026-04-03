@@ -16,6 +16,8 @@ use crate::services::api_key::ApiKeyService;
 /// JWT claims stored inside every token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JwtClaims {
+    /// Unique token ID — used for revocation via the logout endpoint.
+    pub jti: String,
     /// github_login
     pub sub: String,
     /// "super_admin", "org_admin", "developer"
@@ -98,9 +100,12 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
 async fn validate_api_key(app_state: &AppState, token: &str) -> Result<AuthUser, AuthError> {
     let api_key = ApiKeyService::validate(&app_state.db, token)
         .await
-        .map_err(|e| AuthError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("API key validation error: {e}"),
+        .map_err(|e| {
+            tracing::error!("API key validation error: {e:#}");
+            AuthError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Internal server error".into(),
+            }
         })?
         .ok_or_else(|| AuthError {
             status: StatusCode::UNAUTHORIZED,
@@ -113,9 +118,12 @@ async fn validate_api_key(app_state: &AppState, token: &str) -> Result<AuthUser,
         .orgs()
         .find_one(bson::doc! { "_id": api_key.org_id })
         .await
-        .map_err(|e| AuthError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("Database error: {e}"),
+        .map_err(|e| {
+            tracing::error!("Database error during API key auth: {e:#}");
+            AuthError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Internal server error".into(),
+            }
         })?;
 
     let org_slug = org.map(|o| o.slug);
@@ -142,6 +150,14 @@ fn validate_jwt(app_state: &AppState, token: &str) -> Result<AuthUser, AuthError
     })?;
 
     let claims = token_data.claims;
+
+    // Reject explicitly revoked tokens (logout denylist)
+    if app_state.revoked_jwts.contains_key(&claims.jti) {
+        return Err(AuthError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "Token has been revoked".into(),
+        });
+    }
 
     // Map role string back to Role enum
     let role = match claims.role.as_str() {
@@ -190,13 +206,14 @@ pub fn create_jwt(
         Role::Developer => "developer",
     };
 
-    // 7 days from now
+    // 24 hours from now — short enough to limit blast radius if a token leaks
     let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(7))
+        .checked_add_signed(chrono::Duration::hours(24))
         .expect("valid timestamp")
         .timestamp() as usize;
 
     let claims = JwtClaims {
+        jti: uuid::Uuid::new_v4().to_string(),
         sub: github_login.to_string(),
         role: role_str.to_string(),
         org_id: org_id.map(|id| id.to_hex()),

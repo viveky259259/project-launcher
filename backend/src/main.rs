@@ -311,6 +311,7 @@ async fn main() -> anyhow::Result<()> {
         mode,
         http_client: reqwest::Client::new(),
         oauth_states: dashmap::DashMap::new(),
+        revoked_jwts: dashmap::DashMap::new(),
     });
 
     // Build router
