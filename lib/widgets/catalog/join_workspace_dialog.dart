@@ -39,9 +39,9 @@ class _JoinWorkspaceDialogState extends State<JoinWorkspaceDialog> {
     try {
       final token = _tokenController.text.trim();
       if (token.isNotEmpty) {
-        await CatalogService.joinWithToken(url, token);
+        await CatalogService.instance.joinWithToken(url, token);
       } else {
-        await CatalogService.joinWorkspace(url);
+        await CatalogService.instance.joinWorkspace(url);
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {

@@ -8,7 +8,7 @@ import 'package:launcher_theme/launcher_theme.dart';
 import '../../services/catalog_service.dart';
 
 /// Dialog that collects values for "ask" variables in an [EnvTemplate] and
-/// then writes the resulting `.env` file via [CatalogService.applyEnvTemplate].
+/// then writes the resulting `.env` file via [CatalogService.instance.applyEnvTemplate].
 ///
 /// Usage:
 /// ```dart
@@ -116,7 +116,7 @@ class _EnvTemplateDialogState extends State<EnvTemplateDialog> {
     final patchedTemplate = widget.template.copyWith(vars: patchedVars);
 
     try {
-      await CatalogService.applyEnvTemplate(
+      await CatalogService.instance.applyEnvTemplate(
         widget.repoPath,
         patchedTemplate,
         mergedUserValues,

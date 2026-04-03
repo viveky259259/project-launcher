@@ -27,16 +27,16 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
   @override
   void initState() {
     super.initState();
-    CatalogService.addListener(_onServiceUpdate);
+    CatalogService.instance.addListener(_onServiceUpdate);
     // Trigger initial diff fetch if connected and no diff yet
-    if (CatalogService.isConnected && CatalogService.lastDiff == null) {
+    if (CatalogService.instance.isConnected && CatalogService.instance.lastDiff == null) {
       _refreshDiff();
     }
   }
 
   @override
   void dispose() {
-    CatalogService.removeListener(_onServiceUpdate);
+    CatalogService.instance.removeListener(_onServiceUpdate);
     super.dispose();
   }
 
@@ -49,7 +49,7 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
       _syncError = null;
     });
     try {
-      await CatalogService.computeDiff();
+      await CatalogService.instance.computeDiff();
     } catch (e) {
       if (mounted) {
         setState(() => _syncError = e.toString().replaceFirst('Exception: ', ''));
@@ -64,7 +64,7 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
     });
     try {
       final basePath = _defaultBasePath;
-      await CatalogService.syncAllMissing(basePath);
+      await CatalogService.instance.syncAllMissing(basePath);
       await _refreshDiff();
     } catch (e) {
       if (mounted) {
@@ -79,7 +79,7 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
     setState(() => _cloningRepos.add(repo.name));
     try {
       final basePath = _defaultBasePath;
-      await CatalogService.syncRepo(repo, basePath);
+      await CatalogService.instance.syncRepo(repo, basePath);
       await _refreshDiff();
     } catch (e) {
       if (mounted) {
@@ -112,14 +112,14 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
       builder: (_) => const JoinWorkspaceDialog(),
     );
     // After dialog closes, refresh diff if now connected
-    if (CatalogService.isConnected) {
+    if (CatalogService.instance.isConnected) {
       await _refreshDiff();
     }
   }
 
   Future<void> _startOnboarding() async {
     try {
-      await CatalogService.startOnboarding();
+      await CatalogService.instance.startOnboarding();
       if (mounted) {
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -166,11 +166,11 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
   }
 
   Widget _buildHeader(ColorScheme cs) {
-    final workspace = CatalogService.workspace;
-    final diff = CatalogService.lastDiff;
+    final workspace = CatalogService.instance.workspace;
+    final diff = CatalogService.instance.lastDiff;
 
     String subtitle;
-    if (!CatalogService.isConnected) {
+    if (!CatalogService.instance.isConnected) {
       subtitle = 'Not connected';
     } else if (diff == null) {
       subtitle = 'Tap sync to check status';
@@ -194,17 +194,17 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
           Container(
             padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
-              color: CatalogService.isConnected
+              color: CatalogService.instance.isConnected
                   ? AppColors.accent.withValues(alpha: 0.12)
                   : cs.onSurface.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Icon(
-              CatalogService.isConnected
+              CatalogService.instance.isConnected
                   ? Icons.hub_rounded
                   : Icons.hub_outlined,
               size: 16,
-              color: CatalogService.isConnected
+              color: CatalogService.instance.isConnected
                   ? AppColors.accent
                   : cs.onSurfaceVariant,
             ),
@@ -233,7 +233,7 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
               ],
             ),
           ),
-          if (CatalogService.isConnected) ...[
+          if (CatalogService.instance.isConnected) ...[
             // Refresh button
             IconButton(
               icon: const Icon(Icons.refresh_rounded, size: 16),
@@ -249,7 +249,7 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
               variant: UkButtonVariant.tonal,
               size: UkButtonSize.small,
               onPressed: (_isSyncing ||
-                      (CatalogService.lastDiff?.missingRepos.isEmpty ?? true))
+                      (CatalogService.instance.lastDiff?.missingRepos.isEmpty ?? true))
                   ? null
                   : _syncAll,
             ),
@@ -260,11 +260,11 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
   }
 
   Widget _buildBody(ColorScheme cs) {
-    if (!CatalogService.isConnected) {
+    if (!CatalogService.instance.isConnected) {
       return _buildNotConnectedState(cs);
     }
 
-    if (CatalogService.lastDiff == null) {
+    if (CatalogService.instance.lastDiff == null) {
       return const Padding(
         padding: EdgeInsets.all(32),
         child: Center(
@@ -273,8 +273,8 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
       );
     }
 
-    final diff = CatalogService.lastDiff!;
-    final checklist = CatalogService.onboardingChecklist;
+    final diff = CatalogService.instance.lastDiff!;
+    final checklist = CatalogService.instance.onboardingChecklist;
     final showOnboardingBanner =
         checklist != null && !checklist.isComplete;
 
@@ -426,7 +426,7 @@ class _CatalogDriftPanelState extends State<CatalogDriftPanel> {
             icon: Icons.laptop_mac_rounded,
             variant: UkButtonVariant.tonal,
             size: UkButtonSize.small,
-            onPressed: CatalogService.isConnected ? _startOnboarding : null,
+            onPressed: CatalogService.instance.isConnected ? _startOnboarding : null,
           ),
         ],
       ),
