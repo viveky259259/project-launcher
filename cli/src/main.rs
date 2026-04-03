@@ -9,6 +9,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+mod auth;
+mod onboarding;
+
 // ---------------------------------------------------------------------------
 // CLI argument parsing (clap)
 // ---------------------------------------------------------------------------
@@ -102,6 +105,50 @@ enum Commands {
         /// Detach — run the server in the background (Docker mode only)
         #[arg(long, short)]
         detach: bool,
+    },
+    /// Join a catalog workspace (full onboarding flow)
+    Join {
+        /// Catalog server URL (e.g. https://catalog.acme.internal)
+        url: String,
+        /// Local directory to clone repos into (defaults to $HOME/src)
+        #[arg(long, short)]
+        base_path: Option<String>,
+        /// API key or JWT token (skips browser auth)
+        #[arg(long, short)]
+        token: Option<String>,
+        /// Organization slug (e.g. acme-corp)
+        #[arg(long, short)]
+        org: Option<String>,
+    },
+    /// Manage onboarding checklist
+    Onboarding {
+        #[command(subcommand)]
+        action: OnboardingAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum OnboardingAction {
+    /// Show current onboarding checklist status
+    Status {
+        /// Catalog server URL (loads from saved auth if omitted)
+        #[arg(long)]
+        server: Option<String>,
+        /// Auth token — API key or JWT (loads from saved auth if omitted)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Resume onboarding from first incomplete step
+    Continue {
+        /// Catalog server URL (loads from saved auth if omitted)
+        #[arg(long)]
+        server: Option<String>,
+        /// Auth token — API key or JWT (loads from saved auth if omitted)
+        #[arg(long)]
+        token: Option<String>,
+        /// Local directory where repos are cloned
+        #[arg(long, short)]
+        base_path: Option<String>,
     },
 }
 
@@ -917,7 +964,66 @@ fn main() -> Result<()> {
         Commands::Serve { port, env_file, docker, detach } => {
             serve::cmd_serve(port, env_file.as_deref(), docker, detach)?;
         }
+        Commands::Join { url, base_path, token, org } => {
+            let base = resolve_base_path(base_path);
+            tokio::runtime::Runtime::new()?.block_on(
+                onboarding::cmd_join(&url, &base, token.as_deref(), org.as_deref()),
+            )?;
+        }
+        Commands::Onboarding { action } => match action {
+            OnboardingAction::Status { server, token } => {
+                let (resolved_server, resolved_token) =
+                    resolve_auth(server.as_deref(), token.as_deref())?;
+                tokio::runtime::Runtime::new()?
+                    .block_on(onboarding::cmd_status(&resolved_server, &resolved_token))?;
+            }
+            OnboardingAction::Continue { server, token, base_path } => {
+                let (resolved_server, resolved_token) =
+                    resolve_auth(server.as_deref(), token.as_deref())?;
+                let base = resolve_base_path(base_path);
+                tokio::runtime::Runtime::new()?
+                    .block_on(onboarding::cmd_continue(&resolved_server, &resolved_token, &base))?;
+            }
+        },
     }
 
     Ok(())
+}
+
+/// Resolve server + token from explicit flags or saved auth.json
+fn resolve_auth(server: Option<&str>, token: Option<&str>) -> Result<(String, String)> {
+    match (server, token) {
+        (Some(s), Some(t)) => Ok((s.to_string(), t.to_string())),
+        (Some(s), None) => {
+            // Server provided but no token — try loading saved token for this server
+            if let Some((saved_token, _org)) = auth::load_token_for_server(s) {
+                Ok((s.to_string(), saved_token))
+            } else {
+                anyhow::bail!(
+                    "No saved token for {}. Run `plauncher join {} --token <key>` first.",
+                    s, s
+                );
+            }
+        }
+        (None, Some(_)) => {
+            anyhow::bail!("--token requires --server. Provide both or omit both to use saved auth.");
+        }
+        (None, None) => {
+            // Load everything from saved auth
+            if let Some(saved) = auth::load_auth() {
+                Ok((saved.server_url, saved.token))
+            } else {
+                anyhow::bail!(
+                    "Not authenticated. Run `plauncher join <url> --token <key>` first."
+                );
+            }
+        }
+    }
+}
+
+fn resolve_base_path(base_path: Option<String>) -> String {
+    base_path.unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        format!("{}/src", home)
+    })
 }
