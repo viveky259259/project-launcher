@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use axum::{extract::State, routing::{get, post}, Json, Router};
 use mongodb::IndexModel;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -308,15 +309,31 @@ async fn main() -> anyhow::Result<()> {
         github_client_id,
         github_client_secret,
         mode,
+        http_client: reqwest::Client::new(),
         oauth_states: dashmap::DashMap::new(),
     });
 
     // Build router
+    // Rate-limit auth endpoints: 5 requests/second sustained, burst of 10 per IP.
+    // Protects the OAuth callback and token exchange from abuse.
+    let auth_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(5)
+            .burst_size(10)
+            .finish()
+            .unwrap(),
+    );
+
     let app = Router::new()
         // Health check
         .route("/health", get(health_check))
-        // Auth routes (GitHub OAuth)
-        .nest("/auth", routes::auth::auth_routes())
+        // Auth routes (GitHub OAuth) — rate-limited per IP
+        .nest(
+            "/auth",
+            routes::auth::auth_routes().layer(GovernorLayer {
+                config: Arc::clone(&auth_governor),
+            }),
+        )
         // License validation (called by self-hosted instances)
         .route("/api/license/validate", post(routes::license::validate_license))
         // Super admin routes

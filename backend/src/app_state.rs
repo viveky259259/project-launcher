@@ -22,6 +22,8 @@ pub struct AppState {
     pub github_client_id: String,
     pub github_client_secret: String,
     pub mode: ServerMode,
+    /// Shared HTTP client — reuses the connection pool across all requests.
+    pub http_client: reqwest::Client,
     /// Short-lived nonce store for OAuth CSRF protection.
     /// Maps nonce → context ("super-admin" or org slug).
     /// Entries are inserted at OAuth initiation and removed (consumed) at callback.

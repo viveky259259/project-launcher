@@ -148,7 +148,7 @@ async fn handle_callback(state: &AppState, params: &CallbackParams) -> anyhow::R
     let access_token = exchange_code_for_token(state, &params.code).await?;
 
     // Get GitHub user info
-    let github_user = get_github_user(&access_token).await?;
+    let github_user = get_github_user(&state.http_client, &access_token).await?;
 
     if is_super_admin_flow {
         return handle_super_admin_callback(state, &github_user, params).await;
@@ -223,7 +223,7 @@ async fn handle_org_callback(
 
     // Check GitHub org membership
     let is_member =
-        check_github_org_membership(access_token, &org.github_org, &github_user.login).await?;
+        check_github_org_membership(&state.http_client, access_token, &org.github_org, &github_user.login).await?;
 
     if !is_member {
         let body = serde_json::json!({ "error": "Not a member of the GitHub organization" });
@@ -232,11 +232,14 @@ async fn handle_org_callback(
 
     let org_id = org.id.expect("org should have an _id");
 
-    // Determine role:
-    // 1. Check super_admins collection
-    // 2. Check existing member record
-    // 3. Create new member as Developer
-    let role = determine_role(state, &org_id, &github_user.login).await?;
+    // Determine role — returns None if the user has no member record (not invited).
+    let role = match determine_role(state, &org_id, &github_user.login).await? {
+        Some(r) => r,
+        None => {
+            let body = serde_json::json!({ "error": "Not invited to this organization" });
+            return Ok((StatusCode::FORBIDDEN, Json(body)).into_response());
+        }
+    };
 
     // Issue JWT
     let token = create_jwt(
@@ -262,13 +265,14 @@ async fn handle_org_callback(
     Ok(Json(body).into_response())
 }
 
-/// Determine the role for a user in an org.
+/// Determine the role for an authenticated GitHub user in an org.
+/// Returns `None` if the user has not been explicitly invited — callers must reject with 403.
 async fn determine_role(
     state: &AppState,
     org_id: &bson::oid::ObjectId,
     github_login: &str,
-) -> anyhow::Result<Role> {
-    // Check if user is a super admin
+) -> anyhow::Result<Option<Role>> {
+    // Super admins can access any org
     let sa = state
         .db
         .super_admins()
@@ -276,35 +280,17 @@ async fn determine_role(
         .await?;
 
     if sa.is_some() {
-        return Ok(Role::SuperAdmin);
+        return Ok(Some(Role::SuperAdmin));
     }
 
-    // Check existing membership
+    // Must have an existing member record (created via the invite endpoint)
     let member = state
         .db
         .members()
         .find_one(bson::doc! { "orgId": org_id, "githubLogin": github_login })
         .await?;
 
-    if let Some(m) = member {
-        return Ok(m.role);
-    }
-
-    // Create new member as Developer
-    let new_member = crate::models::Member {
-        id: None,
-        org_id: *org_id,
-        github_login: github_login.to_string(),
-        github_avatar: None,
-        role: Role::Developer,
-        invited_by: None,
-        joined_at: bson::DateTime::now(),
-        last_seen_at: None,
-    };
-
-    state.db.members().insert_one(new_member).await?;
-
-    Ok(Role::Developer)
+    Ok(member.map(|m| m.role))
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +298,7 @@ async fn determine_role(
 // ---------------------------------------------------------------------------
 
 async fn exchange_code_for_token(state: &AppState, code: &str) -> anyhow::Result<String> {
-    let client = reqwest::Client::new();
+    let client = &state.http_client;
     let resp = client
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
@@ -334,8 +320,7 @@ async fn exchange_code_for_token(state: &AppState, code: &str) -> anyhow::Result
     Ok(token_resp.access_token)
 }
 
-async fn get_github_user(access_token: &str) -> anyhow::Result<GithubUser> {
-    let client = reqwest::Client::new();
+async fn get_github_user(client: &reqwest::Client, access_token: &str) -> anyhow::Result<GithubUser> {
     let resp = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {access_token}"))
@@ -354,11 +339,11 @@ async fn get_github_user(access_token: &str) -> anyhow::Result<GithubUser> {
 }
 
 async fn check_github_org_membership(
+    client: &reqwest::Client,
     access_token: &str,
     org: &str,
     username: &str,
 ) -> anyhow::Result<bool> {
-    let client = reqwest::Client::new();
     let resp = client
         .get(format!(
             "https://api.github.com/orgs/{org}/members/{username}"
