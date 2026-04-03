@@ -1,0 +1,41 @@
+version: "1"
+
+org:
+  github_org: acme-corp
+  admin_teams:
+    - platform
+    - devops
+
+repos:
+  - name: api-gateway
+    url: git@github.com:acme-corp/api-gateway.git
+    required: true
+    tags:
+      - backend
+      - core
+    env_template: api-gateway
+
+  - name: frontend-web
+    url: git@github.com:acme-corp/frontend-web.git
+    required: true
+    tags:
+      - frontend
+
+  - name: data-pipeline
+    url: git@github.com:acme-corp/data-pipeline.git
+    required: false
+    tags:
+      - infra
+      - optional
+
+env_templates:
+  - name: api-gateway
+    vars:
+      DATABASE_URL:
+        type: ask
+      REDIS_URL:
+        type: default
+        value: "redis://localhost:6379"
+      API_KEY:
+        type: vault
+        path: "acme/api-key"

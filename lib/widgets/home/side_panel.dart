@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:launcher_theme/launcher_theme.dart';
 import 'filter_bar.dart';
+import '../catalog/catalog_drift_panel.dart';
 
 class HomeSidePanel extends StatelessWidget {
   final int totalProjects;
@@ -226,6 +227,11 @@ class HomeSidePanel extends StatelessWidget {
 
           if (onInsightsTap != null)
             const SizedBox(height: 12),
+
+          // Team Catalog drift panel
+          const CatalogDriftPanel(),
+
+          const SizedBox(height: 12),
 
           // Year in Review promo card
           GestureDetector(

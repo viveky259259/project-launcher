@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  plauncher:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8743:8743"
+    environment:
+      MONGODB_URI: mongodb://mongo:27017
+      PLAUNCHER_DB_NAME: plauncher
+      PLAUNCHER_JWT_SECRET: ${PLAUNCHER_JWT_SECRET:?Set PLAUNCHER_JWT_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?Set GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?Set GITHUB_CLIENT_SECRET}
+      PLAUNCHER_MODE: self-hosted
+      PLAUNCHER_LICENSE_KEY: ${PLAUNCHER_LICENSE_KEY:-}
+      PLAUNCHER_LICENSE_URL: ${PLAUNCHER_LICENSE_URL:-https://api.plauncher.io}
+      PORT: 8743
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

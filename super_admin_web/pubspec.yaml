@@ -1,0 +1,22 @@
+name: super_admin
+description: Project Launcher internal super admin portal
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  go_router: ^13.0.0
+  launcher_theme:
+    path: ../packages/launcher_theme
+  launcher_kit:
+    path: ../packages/launcher_kit
+  launcher_models:
+    path: ../packages/launcher_models
+
+flutter:
+  uses-material-design: true
