@@ -6,6 +6,10 @@ Static pages that handle Paddle checkout and subscription management.
 
 - `index.html` — Checkout page (opens Paddle overlay for purchase)
 - `portal.html` — Billing portal (manage subscription)
+- `pricing.html` — Pricing page (Free vs Pro comparison, FAQ)
+- `terms.html` — Terms of Service
+- `privacy.html` — Privacy Policy
+- `refund.html` — Refund Policy (14-day money-back guarantee)
 
 ## Setup
 
