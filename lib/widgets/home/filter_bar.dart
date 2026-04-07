@@ -103,20 +103,25 @@ class FilterBar extends StatelessWidget {
           child: Row(
             children: [
               // Activity filters
-              ..._activityOptions.map((opt) => Padding(
-                padding: const EdgeInsets.only(right: 5),
-                child: _ActivityPill(
-                  label: opt.label,
-                  count: activityCounts[opt.filter] ?? 0,
-                  dotColor: opt.color,
-                  isSelected: activityFilter == opt.filter,
-                  onTap: () => onActivityFilterChanged(
-                    activityFilter == opt.filter ? ActivityFilter.all : opt.filter,
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _activityOptions.map((opt) => Padding(
+                      padding: const EdgeInsets.only(right: 5),
+                      child: _ActivityPill(
+                        label: opt.label,
+                        count: activityCounts[opt.filter] ?? 0,
+                        dotColor: opt.color,
+                        isSelected: activityFilter == opt.filter,
+                        onTap: () => onActivityFilterChanged(
+                          activityFilter == opt.filter ? ActivityFilter.all : opt.filter,
+                        ),
+                      ),
+                    )).toList(),
                   ),
                 ),
-              )),
-
-              const Spacer(),
+              ),
 
               // Sort
               PopupMenuButton<SortMode>(
