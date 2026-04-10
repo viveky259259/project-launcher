@@ -45,6 +45,7 @@ import '../services/cli_install_service.dart';
 import '../dialogs/export_dialog.dart';
 import '../widgets/home/cli_install_banner.dart';
 import '../widgets/home/grid_project_card.dart';
+import 'log_screen.dart';
 import '../widgets/home/header_widgets.dart';
 
 enum SortMode { lastOpened, name, lastChanged }
@@ -1479,6 +1480,15 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'Theme',
             onPressed: () =>
                 setState(() => _showThemeSwitcher = !_showThemeSwitcher),
+          ),
+
+          // Logs
+          HeaderButton(
+            icon: Icons.bug_report_outlined,
+            tooltip: 'App Logs',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LogScreen()),
+            ),
           ),
         ],
       ),

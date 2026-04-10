@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # ═══════════════════════════════════════════════════════════════
 #  Project Launcher — Unified Release Pipeline
 #
@@ -332,6 +334,13 @@ gh release create "$TAG" \
   "$DMG_PATH"
 RELEASE_URL="https://github.com/viveky259259/project-launcher/releases/tag/$TAG"
 echo "  ✓ GitHub Release created: $RELEASE_URL"
+
+echo "  ▸ Generating Sparkle appcast..."
+"$SCRIPT_DIR/generate-appcast.sh" "$TAG"
+git add appcast.xml
+git commit -m "release: update appcast for $TAG"
+git push origin HEAD
+echo "  ✓ Appcast updated and pushed"
 
 echo "  ▸ Updating Homebrew tap..."
 TAP_DIR=$(mktemp -d)

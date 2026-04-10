@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:launcher_native/launcher_native.dart';
 import 'services/referral_service.dart';
@@ -12,31 +14,49 @@ import 'package:launcher_theme/launcher_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  AppLogger.info('App', 'Project Launcher starting (${Platform.operatingSystem} ${Platform.operatingSystemVersion})');
-  await PremiumService.configure();
-  AppLogger.info('App', 'Premium service configured');
 
-  // Start local API server if enabled
-  final prefs = await SharedPreferences.getInstance();
-  final apiEnabled = prefs.getBool('apiServerEnabled') ?? false;
-  if (apiEnabled) {
-    final apiPort = prefs.getInt('apiServerPort') ?? 9847;
-    await ApiServer.start(port: apiPort);
+  final supportDir = await getApplicationSupportDirectory();
+  final logFile = File('${supportDir.path}/app.log');
+  
+  // Clear the log file on startup
+  if (await logFile.exists()) {
+    await logFile.writeAsString('');
   }
 
-  // Initialize notification service
-  await NotificationService.initialize();
-  final notificationsEnabled = prefs.getBool('notificationsEnabled') ?? false;
-  if (notificationsEnabled) {
-    NotificationService.start();
-  }
+  // Add a listener to write logs to the file
+  AppLogger.addListener(() {
+    logFile.writeAsStringSync('${AppLogger.logs.last}\n', mode: FileMode.append);
+  });
 
-  // Start background monitor — checks project health & git status on launch
-  BackgroundMonitor.start();
-  AppLogger.info('App', 'Background monitor started');
+  runZonedGuarded(() async {
+    AppLogger.info('App', 'Project Launcher starting (${Platform.operatingSystem} ${Platform.operatingSystemVersion})');
+    await PremiumService.configure();
+    AppLogger.info('App', 'Premium service configured');
 
-  AppLogger.info('App', 'Startup complete, launching UI');
-  runApp(const ProjectLauncherApp());
+    // Start local API server if enabled
+    final prefs = await SharedPreferences.getInstance();
+    final apiEnabled = prefs.getBool('apiServerEnabled') ?? false;
+    if (apiEnabled) {
+      final apiPort = prefs.getInt('apiServerPort') ?? 9847;
+      await ApiServer.start(port: apiPort);
+    }
+
+    // Initialize notification service
+    await NotificationService.initialize();
+    final notificationsEnabled = prefs.getBool('notificationsEnabled') ?? false;
+    if (notificationsEnabled) {
+      NotificationService.start();
+    }
+
+    // Start background monitor — checks project health & git status on launch
+    BackgroundMonitor.start();
+    AppLogger.info('App', 'Background monitor started');
+
+    AppLogger.info('App', 'Startup complete, launching UI');
+    runApp(const ProjectLauncherApp());
+  }, (error, stack) {
+    AppLogger.error('App', 'Unhandled error: $error\n$stack');
+  });
 }
 
 class ProjectLauncherApp extends StatefulWidget {

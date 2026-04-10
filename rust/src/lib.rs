@@ -1,6 +1,7 @@
 mod git;
 mod health;
 mod stats;
+mod standalone_runner;
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -9,6 +10,7 @@ use std::os::raw::c_char;
 pub use git::*;
 pub use health::*;
 pub use stats::*;
+pub use standalone_runner::*;
 
 /// Helper to convert C string to Rust string
 fn c_str_to_string(s: *const c_char) -> Option<String> {
