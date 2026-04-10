@@ -70,8 +70,10 @@ Copy `.env.example` to `.env` and fill in every value before starting the stack.
 
 | Variable | Description |
 |---|---|
-| `MONGODB_URI` | MongoDB connection string. Defaults to `mongodb://mongo:27017` (the name of the Compose service). |
+| `MONGODB_URI` | MongoDB connection string. Supports local (`mongodb://mongo:27017`) or cloud Atlas (`mongodb+srv://user:pass@cluster.mongodb.net/?appName=...`). Defaults to `mongodb://localhost:27017` if not set. |
 | `PLAUNCHER_DB_NAME` | Database name. Defaults to `plauncher`. |
+
+> **Cloud MongoDB (Atlas):** When using Atlas, ensure your server's IP is in the Atlas Network Access whitelist. The backend includes connection retry (3 attempts with exponential backoff) and timeouts (connect: 10s, server selection: 15s) to handle transient cloud connectivity issues.
 
 ### Bootstrap (first run only)
 
@@ -225,17 +227,14 @@ MongoDB data is persisted in a named volume (`mongo_data`) and is not affected b
 ### MongoDB connection refused
 
 ```
-Error: Failed to connect to mongodb://mongo:27017
+Error: Failed to connect to MongoDB after 3 attempts
 ```
 
-The backend container starts before MongoDB is ready. Wait a few seconds and check:
+The backend retries the initial MongoDB connection 3 times with exponential backoff (2s, 4s, 8s). If all attempts fail:
 
-```bash
-docker compose logs mongo
-docker compose restart backend
-```
-
-If `MONGODB_URI` points to an external host, verify network reachability and that the URI includes credentials if authentication is enabled.
+- **Local (Docker Compose):** Check MongoDB is healthy: `docker compose logs mongo`. The `depends_on: condition: service_healthy` should prevent this, but restart if needed: `docker compose restart plauncher`.
+- **Cloud (Atlas):** Verify your server's IP is in the Atlas Network Access whitelist. Check that credentials in `MONGODB_URI` are correct and the cluster is running. Timeouts are set to 10s (connect) and 15s (server selection).
+- **General:** Verify the URI format. Local: `mongodb://host:27017`. Atlas: `mongodb+srv://user:pass@cluster.mongodb.net/`.
 
 ### Port 8743 already in use
 
