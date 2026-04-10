@@ -1,4 +1,4 @@
-.PHONY: all rust flutter build install clean bootstrap release-patch release-minor release-major release-dry deploy-checkout deploy-web deploy-netlaunch
+.PHONY: all rust flutter build install clean bootstrap release-patch release-minor release-major release-dry deploy-checkout deploy-web deploy-netlaunch build-admin build-all serve build-backend build-docker run-docker stop-docker push-docker test-e2e setup-e2e
 
 # Load secrets from .env or secrets repo (check multiple locations)
 -include .env
@@ -57,6 +57,13 @@ dev: rust
 	cp rust/target/release/libproject_launcher_core.dylib macos/Frameworks/
 	flutter run -d macos $(DART_DEFINES)
 
+# Profile build (for performance analysis)
+profile: rust flutter
+	# Copy dylib to the right location for development
+	mkdir -p macos/Frameworks
+	cp rust/target/release/libproject_launcher_core.dylib macos/Frameworks/
+	flutter build macos --profile $(DART_DEFINES)
+
 # Run tests
 test:
 	cd rust && cargo test
@@ -78,6 +85,45 @@ release-major:
 
 release-dry:
 	./scripts/release.sh patch --dry-run
+
+## Build the admin SPA (Flutter web)
+build-admin:
+	cd web_app && flutter pub get && flutter build web --release
+
+## Build everything including admin SPA and backend
+build-all: build-admin build-backend build
+
+## Run the catalog server (dev mode)
+serve:
+	PLAUNCHER_JWT_SECRET=$${PLAUNCHER_JWT_SECRET:-dev-secret} \
+	GITHUB_CLIENT_ID=$${GITHUB_CLIENT_ID:-} \
+	GITHUB_CLIENT_SECRET=$${GITHUB_CLIENT_SECRET:-} \
+	cargo run --manifest-path cli/Cargo.toml -- serve --catalog catalog.example.yaml
+
+## Backend
+build-backend:
+	cd backend && cargo build --release
+
+## Docker
+build-docker:
+	docker compose build
+
+run-docker:
+	docker compose up -d
+
+stop-docker:
+	docker compose down
+
+push-docker:
+	docker tag project-launcher-plauncher plauncher/org-server:latest
+	docker push plauncher/org-server:latest
+
+## E2E integration tests (Playwright — requires backend running at localhost:8743)
+setup-e2e:
+	cd e2e && npm install
+
+test-e2e: setup-e2e
+	cd e2e && npx playwright test
 
 # NetLaunch deployment targets
 deploy-checkout:

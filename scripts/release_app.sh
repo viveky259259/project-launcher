@@ -39,12 +39,28 @@ echo ""
 
 # ─── Step 1: Clean & Build ───
 echo "▸ Step 1/7: Cleaning and building macOS app..."
+
+# Build Rust FFI library first
+echo "  Building Rust FFI library..."
+cd rust && cargo build --release && cd ..
+
 flutter clean
 flutter pub get
+
+# Copy Rust dylib into macos/Frameworks so Flutter bundles it into the app
+mkdir -p macos/Frameworks
+cp rust/target/release/libproject_launcher_core.dylib macos/Frameworks/
+
 flutter build macos --release \
   --dart-define=PADDLE_API_KEY="$PADDLE_API_KEY" \
-  --dart-define=PADDLE_IS_SANDBOX="$PADDLE_IS_SANDBOX"
-echo "  ✓ Built $APP_PATH"
+  --dart-define=PADDLE_IS_SANDBOX="$PADDLE_IS_SANDBOX" \
+  --dart-define=GEMINI_API_KEY="${GEMINI_API_KEY:-}"
+
+# Ensure Rust dylib is in the app bundle Frameworks
+mkdir -p "$APP_PATH/Contents/Frameworks"
+cp rust/target/release/libproject_launcher_core.dylib "$APP_PATH/Contents/Frameworks/"
+
+echo "  ✓ Built $APP_PATH (with Rust FFI)"
 echo ""
 
 # ─── Step 2: Code Sign ───

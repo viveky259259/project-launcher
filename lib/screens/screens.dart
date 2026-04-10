@@ -6,6 +6,7 @@ export 'health_screen.dart';
 export 'home_screen.dart';
 export 'insights_screen.dart';
 export 'notifications_screen.dart';
+export 'onboarding_catalog_screen.dart';
 export 'onboarding_screen.dart';
 export 'plugins_screen.dart';
 export 'pro_screen.dart';
